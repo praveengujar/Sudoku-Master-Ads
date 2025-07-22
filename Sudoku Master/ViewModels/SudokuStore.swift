@@ -150,6 +150,7 @@ class SudokuStore: ObservableObject {
     
     func setDifficulty(_ difficulty: SudokuDifficulty) {
         self.difficulty = difficulty
+        newGame()
     }
     
     func enterNumber(_ number: Int) {

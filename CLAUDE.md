@@ -69,3 +69,33 @@ The app gracefully degrades to offline mode when network is unavailable. It incl
 
 ### State Persistence
 Game progress is saved both locally (UserDefaults) and remotely (API) with conflict resolution favoring the most recent save.
+
+### Difficulty Selection & Puzzle Loading
+- Difficulty selection triggers automatic puzzle reload via `setDifficulty()` method in `SudokuStore`
+- The `setDifficulty()` method (line 151-154) calls `newGame()` to load a fresh puzzle with the selected difficulty
+- This ensures users get a new puzzle immediately when changing difficulty levels
+- Works seamlessly in both online and offline modes
+
+## Recent Implementation Learnings
+
+### Automatic Puzzle Reload (2025-07-22)
+**Problem**: Users had to manually start a new game after selecting a difficulty level
+**Solution**: Modified `SudokuStore.setDifficulty()` to automatically call `newGame()`
+**Location**: `ViewModels/SudokuStore.swift:151-154`
+**Impact**: 
+- Improved UX by eliminating extra steps
+- Maintains game state consistency across difficulty changes
+- Works with both online API and offline puzzle storage
+
+### Code Flow for Difficulty Changes
+1. User taps difficulty button in `HomeView.swift:56-57`
+2. Calls `sudokuStore.setDifficulty(diff)`
+3. `setDifficulty()` updates difficulty property and calls `newGame()`
+4. `newGame()` method handles puzzle loading based on online/offline mode
+5. Timer resets and game state refreshes automatically
+
+### Key Methods Involved
+- `HomeView`: Difficulty button actions trigger difficulty changes
+- `SudokuStore.setDifficulty()`: Sets difficulty and triggers puzzle reload
+- `SudokuStore.newGame()`: Handles puzzle loading logic for both modes
+- `SudokuStore.resetGameState()`: Clears previous game state
