@@ -62,13 +62,15 @@ class SudokuStore: ObservableObject {
                     self.errorMessage = "Failed to load puzzle: \(error.localizedDescription)"
                     self.isLoading = false
                     print("Error loading puzzle: \(error)")
-                    
-                    // Try to load a fallback puzzle if online mode fails
-                    if !isOfflineMode {
-                        print("Attempting to switch to offline mode as fallback")
+                }
+                
+                // Try to load a fallback puzzle if online mode fails
+                if !isOfflineMode {
+                    print("Attempting to switch to offline mode as fallback")
+                    await MainActor.run {
                         self.isOfflineMode = true
-                        await self.loadOfflinePuzzle()
                     }
+                    await loadOfflinePuzzle()
                 }
             }
         }
