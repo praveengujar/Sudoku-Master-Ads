@@ -225,9 +225,11 @@ struct NumberButton: View {
         }) {
             Text("\(number)")
                 .font(.title2)
+                .foregroundColor(.primary)
                 .frame(width: 40, height: 40)
                 .background(Color.blue.opacity(0.1))
                 .cornerRadius(8)
         }
+        .buttonStyle(PlainButtonStyle())
     }
 }

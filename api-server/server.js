@@ -16,19 +16,9 @@ let userStats = [];
 
 // Helper function to generate Sudoku puzzle
 function generateSudokuPuzzle(difficulty) {
-  // Simple base puzzle for demonstration
-  const basePuzzle = [
-    [5, 3, null, null, 7, null, null, null, null],
-    [6, null, null, 1, 9, 5, null, null, null],
-    [null, 9, 8, null, null, null, null, 6, null],
-    [8, null, null, null, 6, null, null, null, 3],
-    [4, null, null, 8, null, 3, null, null, 1],
-    [7, null, null, null, 2, null, null, null, 6],
-    [null, 6, null, null, null, null, 2, 8, null],
-    [null, null, null, 4, 1, 9, null, null, 5],
-    [null, null, null, null, 8, null, null, 7, 9]
-  ];
-
+  console.log(`🎯 Server generating puzzle for difficulty: ${difficulty}`);
+  
+  // Complete solution grid
   const solution = [
     [5, 3, 4, 6, 7, 8, 9, 1, 2],
     [6, 7, 2, 1, 9, 5, 3, 4, 8],
@@ -41,20 +31,62 @@ function generateSudokuPuzzle(difficulty) {
     [3, 4, 5, 2, 8, 6, 1, 7, 9]
   ];
 
-  // Vary the puzzle based on difficulty
-  let puzzle = JSON.parse(JSON.stringify(basePuzzle));
-  const cellsToRemove = difficulty === 'easy' ? 35 : difficulty === 'medium' ? 45 : 55;
+  // Create empty grid
+  let puzzle = Array(9).fill(null).map(() => Array(9).fill(null));
   
-  // Randomly remove some additional cells based on difficulty
-  let removed = 0;
-  while (removed < cellsToRemove - 35) {
-    const row = Math.floor(Math.random() * 9);
-    const col = Math.floor(Math.random() * 9);
-    if (puzzle[row][col] !== null) {
-      puzzle[row][col] = null;
-      removed++;
-    }
+  // Define difficulty-based positions to fill
+  let positions;
+  
+  if (difficulty === 'easy') {
+    // Easy: 45-50 filled cells (more clues)
+    positions = [
+      [0,0], [0,1], [0,2], [0,4], [0,6], [0,7],
+      [1,0], [1,2], [1,3], [1,4], [1,5], [1,7], [1,8],
+      [2,0], [2,1], [2,3], [2,5], [2,7], [2,8],
+      [3,0], [3,2], [3,4], [3,6], [3,8],
+      [4,0], [4,2], [4,3], [4,5], [4,6], [4,8],
+      [5,0], [5,2], [5,4], [5,6], [5,8],
+      [6,0], [6,1], [6,3], [6,5], [6,7], [6,8],
+      [7,0], [7,2], [7,3], [7,4], [7,5], [7,7], [7,8],
+      [8,0], [8,1], [8,2], [8,4], [8,6], [8,7], [8,8]
+    ];
+  } else if (difficulty === 'medium') {
+    // Medium: 35-40 filled cells (moderate clues)
+    positions = [
+      [0,0], [0,2], [0,4], [0,7],
+      [1,0], [1,3], [1,5], [1,8],
+      [2,1], [2,3], [2,5], [2,7],
+      [3,0], [3,4], [3,8],
+      [4,2], [4,3], [4,5], [4,6],
+      [5,0], [5,4], [5,8],
+      [6,1], [6,3], [6,5], [6,7],
+      [7,0], [7,3], [7,5], [7,8],
+      [8,1], [8,4], [8,6], [8,8],
+      [2,0], [3,2], [4,0], [4,8], [5,2], [6,0], [7,1]
+    ];
+  } else { // hard
+    // Hard: 25-30 filled cells (fewer clues)
+    positions = [
+      [0,0], [0,4], [0,8],
+      [1,2], [1,6],
+      [2,1], [2,7],
+      [3,0], [3,8],
+      [4,3], [4,5],
+      [5,0], [5,8],
+      [6,1], [6,7],
+      [7,2], [7,6],
+      [8,0], [8,4], [8,8],
+      [1,0], [3,4], [4,1], [4,7], [5,4], [7,8]
+    ];
   }
+  
+  // Fill the puzzle with solution values at specified positions
+  positions.forEach(([row, col]) => {
+    puzzle[row][col] = solution[row][col];
+  });
+  
+  const filledCells = puzzle.flat().filter(cell => cell !== null).length;
+  console.log(`🎯 Server created puzzle with ${filledCells} filled cells for ${difficulty}`);
 
   return {
     id: Math.floor(Math.random() * 10000),

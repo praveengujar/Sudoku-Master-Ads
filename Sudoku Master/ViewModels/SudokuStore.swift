@@ -26,12 +26,21 @@ class SudokuStore: ObservableObject {
     // Timer
     private var timer: Timer?
     
+    // Dependencies
+    private var offlineStorage: OfflineStorage?
+    private var authManager: AuthManager?
+    
     // MARK: - Initialization
     
     init() {
         startTimer()
         // Load a test puzzle immediately so users can start playing
         loadTestPuzzle()
+    }
+    
+    func setDependencies(offlineStorage: OfflineStorage, authManager: AuthManager) {
+        self.offlineStorage = offlineStorage
+        self.authManager = authManager
     }
     
     deinit {
@@ -41,14 +50,17 @@ class SudokuStore: ObservableObject {
     // MARK: - Game Actions
     
     func newGame() {
+        print("🎯 Starting new game with difficulty: \(difficulty.rawValue), offline mode: \(isOfflineMode)")
         isLoading = true
         errorMessage = nil
         
         Task {
             do {
                 if isOfflineMode {
+                    print("🎯 Using offline mode")
                     await loadOfflinePuzzle()
                 } else {
+                    print("🎯 Using online mode - calling API")
                     let puzzle = try await APIService.shared.generatePuzzle(difficulty: difficulty)
                     await MainActor.run {
                         self.grid = puzzle.grid
@@ -56,15 +68,15 @@ class SudokuStore: ObservableObject {
                         self.puzzleId = puzzle.id
                         resetGameState()
                         isLoading = false
-                        print("Successfully loaded puzzle with \(puzzle.grid.flatMap { $0 }.compactMap { $0 }.count) filled cells")
+                        print("🎯 Successfully loaded API puzzle with \(puzzle.grid.flatMap { $0 }.compactMap { $0 }.count) filled cells")
                     }
                 }
             } catch {
-                print("Error loading puzzle: \(error)")
+                print("🎯 Error loading puzzle: \(error)")
                 
                 // Try to load a fallback puzzle if online mode fails
                 if !isOfflineMode {
-                    print("Attempting to switch to offline mode as fallback")
+                    print("🎯 API failed - switching to offline mode as fallback")
                     await MainActor.run {
                         self.isOfflineMode = true
                         // Clear the error message before attempting fallback
@@ -84,7 +96,7 @@ class SudokuStore: ObservableObject {
     
     @MainActor
     private func loadOfflinePuzzle() async {
-        guard let offlineStorage = (UIApplication.shared.delegate as? AppDelegate)?.offlineStorage else {
+        guard let offlineStorage = offlineStorage else {
             errorMessage = "Offline storage not available"
             isLoading = false
             return
@@ -149,6 +161,7 @@ class SudokuStore: ObservableObject {
     }
     
     func setDifficulty(_ difficulty: SudokuDifficulty) {
+        print("🎯 Setting difficulty to: \(difficulty.rawValue)")
         self.difficulty = difficulty
         newGame()
     }
@@ -464,7 +477,7 @@ class SudokuStore: ObservableObject {
                 if isOfflineMode {
                     saveLocalProgress(isCompleted: isCompleted)
                 } else {
-                    if let userId = (UIApplication.shared.delegate as? AppDelegate)?.authManager.currentUser?.id {
+                    if let userId = authManager?.currentUser?.id {
                         let _ = try await APIService.shared.saveGameProgress(
                             userId: userId,
                             puzzleId: puzzleId,
@@ -484,9 +497,9 @@ class SudokuStore: ObservableObject {
     
     private func saveLocalProgress(isCompleted: Bool) {
         guard let puzzleId = puzzleId else { return }
-        guard let offlineStorage = (UIApplication.shared.delegate as? AppDelegate)?.offlineStorage else { return }
+        guard let offlineStorage = offlineStorage else { return }
         
-        let userId = (UIApplication.shared.delegate as? AppDelegate)?.authManager.currentUser?.id
+        let userId = authManager?.currentUser?.id
         
         let record = StoredGameRecord(
             puzzleId: puzzleId,
@@ -505,20 +518,9 @@ class SudokuStore: ObservableObject {
     // MARK: - Fallback Puzzle Creation
     
     private func createFallbackPuzzle() -> SudokuPuzzle {
-        // Create a simple valid Sudoku puzzle
-        let grid: SudokuGrid = [
-            [5, 3, nil, nil, 7, nil, nil, nil, nil],
-            [6, nil, nil, 1, 9, 5, nil, nil, nil],
-            [nil, 9, 8, nil, nil, nil, nil, 6, nil],
-            [8, nil, nil, nil, 6, nil, nil, nil, 3],
-            [4, nil, nil, 8, nil, 3, nil, nil, 1],
-            [7, nil, nil, nil, 2, nil, nil, nil, 6],
-            [nil, 6, nil, nil, nil, nil, 2, 8, nil],
-            [nil, nil, nil, 4, 1, 9, nil, nil, 5],
-            [nil, nil, nil, nil, 8, nil, nil, 7, 9]
-        ]
+        print("🎯 Creating fallback puzzle for difficulty: \(difficulty.rawValue)")
         
-        // Create a solution (this is a valid Sudoku solution)
+        // Create difficulty-specific puzzle templates
         let solution: SudokuGrid = [
             [5, 3, 4, 6, 7, 8, 9, 1, 2],
             [6, 7, 2, 1, 9, 5, 3, 4, 8],
@@ -530,6 +532,66 @@ class SudokuStore: ObservableObject {
             [2, 8, 7, 4, 1, 9, 6, 3, 5],
             [3, 4, 5, 2, 8, 6, 1, 7, 9]
         ]
+        
+        // Create grid with difficulty-based number of cells filled
+        var grid = Array(repeating: Array(repeating: nil as Int?, count: 9), count: 9)
+        
+        // Define positions to fill based on difficulty
+        let positions: [(Int, Int)]
+        
+        switch difficulty {
+        case .easy:
+            // Easy: 45-50 filled cells (more clues)
+            positions = [
+                (0,0), (0,1), (0,2), (0,4), (0,6), (0,7),
+                (1,0), (1,2), (1,3), (1,4), (1,5), (1,7), (1,8),
+                (2,0), (2,1), (2,3), (2,5), (2,7), (2,8),
+                (3,0), (3,2), (3,4), (3,6), (3,8),
+                (4,0), (4,2), (4,3), (4,5), (4,6), (4,8),
+                (5,0), (5,2), (5,4), (5,6), (5,8),
+                (6,0), (6,1), (6,3), (6,5), (6,7), (6,8),
+                (7,0), (7,2), (7,3), (7,4), (7,5), (7,7), (7,8),
+                (8,0), (8,1), (8,2), (8,4), (8,6), (8,7), (8,8)
+            ]
+            
+        case .medium:
+            // Medium: 35-40 filled cells (moderate clues)
+            positions = [
+                (0,0), (0,2), (0,4), (0,7),
+                (1,0), (1,3), (1,5), (1,8),
+                (2,1), (2,3), (2,5), (2,7),
+                (3,0), (3,4), (3,8),
+                (4,2), (4,3), (4,5), (4,6),
+                (5,0), (5,4), (5,8),
+                (6,1), (6,3), (6,5), (6,7),
+                (7,0), (7,3), (7,5), (7,8),
+                (8,1), (8,4), (8,6), (8,8),
+                (2,0), (3,2), (4,0), (4,8), (5,2), (6,0), (7,1)
+            ]
+            
+        case .hard:
+            // Hard: 25-30 filled cells (fewer clues)
+            positions = [
+                (0,0), (0,4), (0,8),
+                (1,2), (1,6),
+                (2,1), (2,7),
+                (3,0), (3,8),
+                (4,3), (4,5),
+                (5,0), (5,8),
+                (6,1), (6,7),
+                (7,2), (7,6),
+                (8,0), (8,4), (8,8),
+                (1,0), (3,4), (4,1), (4,7), (5,4), (7,8)
+            ]
+        }
+        
+        // Fill the grid with solution values at specified positions
+        for (row, col) in positions {
+            grid[row][col] = solution[row][col]
+        }
+        
+        let filledCells = grid.flatMap { $0 }.compactMap { $0 }.count
+        print("🎯 Created fallback puzzle with \(filledCells) filled cells for \(difficulty.rawValue)")
         
         return SudokuPuzzle(id: -1, grid: grid, solution: solution, difficulty: difficulty)
     }
@@ -557,7 +619,7 @@ class SudokuStore: ObservableObject {
     
     func downloadPuzzlesForOfflinePlay() async -> Bool {
         guard !isOfflineMode else { return false }
-        guard let offlineStorage = (UIApplication.shared.delegate as? AppDelegate)?.offlineStorage else { return false }
+        guard let offlineStorage = offlineStorage else { return false }
         
         var puzzlesByDifficulty: [String: [SudokuPuzzle]] = [:]
         

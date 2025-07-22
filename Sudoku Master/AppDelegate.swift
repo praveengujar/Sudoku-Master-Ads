@@ -15,6 +15,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         authManager = AuthManager()
         sudokuStore = SudokuStore()
         
+        // Inject dependencies into SudokuStore
+        sudokuStore.setDependencies(offlineStorage: offlineStorage, authManager: authManager)
+        
         // Set offline mode status in SudokuStore based on OfflineStorage
         sudokuStore.setOfflineMode(isOffline: offlineStorage.isOfflineMode)
         
@@ -35,10 +38,26 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             name: NSNotification.Name("NetworkStatusChanged"),
             object: nil
         )
+        
+        // Subscribe to offline mode enable request
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(enableOfflineMode),
+            name: NSNotification.Name("EnableOfflineMode"),
+            object: nil
+        )
     }
     
     @objc private func networkStatusChanged() {
         offlineStorage.updateOfflineStatus(networkConnected: networkMonitor.isConnected)
         sudokuStore.setOfflineMode(isOffline: offlineStorage.isOfflineMode)
+    }
+    
+    @objc private func enableOfflineMode() {
+        // Force enable offline mode (typically when in guest mode)
+        if !offlineStorage.isManualOfflineMode {
+            offlineStorage.toggleOfflineMode()
+        }
+        sudokuStore.setOfflineMode(isOffline: true)
     }
 }

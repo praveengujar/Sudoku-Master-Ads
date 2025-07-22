@@ -46,7 +46,12 @@ class AuthManager: ObservableObject {
             self.isAuthenticated = true
             self.error = nil
         } catch {
-            self.error = "Login failed: \(error.localizedDescription)"
+            let errorMessage = error.localizedDescription
+            if errorMessage.contains("connect") || errorMessage.contains("server") {
+                self.error = "Server unavailable. Try 'Continue as Guest' to play offline."
+            } else {
+                self.error = "Login failed: \(errorMessage)"
+            }
             self.isAuthenticated = false
         }
     }
@@ -62,7 +67,12 @@ class AuthManager: ObservableObject {
             self.isAuthenticated = true
             self.error = nil
         } catch {
-            self.error = "Registration failed: \(error.localizedDescription)"
+            let errorMessage = error.localizedDescription
+            if errorMessage.contains("connect") || errorMessage.contains("server") {
+                self.error = "Server unavailable. Try 'Continue as Guest' to play offline."
+            } else {
+                self.error = "Registration failed: \(errorMessage)"
+            }
             self.isAuthenticated = false
         }
     }
@@ -89,6 +99,9 @@ class AuthManager: ObservableObject {
         self.isAuthenticated = false
         self.isGuestMode = true
         self.error = nil
+        
+        // Automatically enable offline mode when in guest mode
+        NotificationCenter.default.post(name: NSNotification.Name("EnableOfflineMode"), object: nil)
     }
     
     var isLoggedInOrGuest: Bool {

@@ -37,7 +37,11 @@ class APIService {
     
     func generatePuzzle(difficulty: SudokuDifficulty) async throws -> SudokuPuzzle {
         let endpoint = "\(baseURL)/sudoku/generate?difficulty=\(difficulty.rawValue)"
-        return try await performRequest(endpoint: endpoint, method: "GET", body: nil as Never?)
+        print("🎯 API Request: \(endpoint)")
+        print("🎯 Difficulty: \(difficulty.rawValue)")
+        let puzzle: SudokuPuzzle = try await performRequest(endpoint: endpoint, method: "GET", body: nil as Never?)
+        print("🎯 Received puzzle ID: \(puzzle.id) with \(puzzle.grid.flatMap { $0 }.compactMap { $0 }.count) filled cells")
+        return puzzle
     }
     
     func saveGameProgress(userId: Int, puzzleId: Int, currentGrid: SudokuGrid, isCompleted: Bool, timeSpentSeconds: Int) async throws -> GameplayRecord {

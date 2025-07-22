@@ -128,44 +128,45 @@ struct SudokuCell: View {
     }
     
     var body: some View {
-        Button(action: {
-            print("Cell tapped at (\(row), \(col))")
-            sudokuStore.setSelectedCell(row: row, col: col)
-        }) {
-            ZStack {
-                // Background
-                Rectangle()
-                    .fill(backgroundColor)
-                
-                // Number
-                if let value = cellValue {
-                    Text("\(value)")
-                        .font(.title2)
-                        .fontWeight(isOriginal ? .bold : .regular)
-                        .foregroundColor(textColor)
-                } else if isHintCell, let hintValue = sudokuStore.hintCell.value {
-                    Text("\(hintValue)")
-                        .font(.title2)
-                        .foregroundColor(textColor)
-                        .opacity(0.7)
-                }
+        ZStack {
+            // Background
+            Rectangle()
+                .fill(backgroundColor)
+            
+            // Number
+            if let value = cellValue {
+                Text("\(value)")
+                    .font(.title2)
+                    .fontWeight(isOriginal ? .bold : .regular)
+                    .foregroundColor(textColor)
+            } else if isHintCell, let hintValue = sudokuStore.hintCell.value {
+                Text("\(hintValue)")
+                    .font(.title2)
+                    .foregroundColor(textColor)
+                    .opacity(0.7)
+            }
+            
+            // Error indicator
+            if hasError {
+                RoundedRectangle(cornerRadius: 0)
+                    .stroke(Color.red, lineWidth: 2)
+                    .padding(1)
+            }
+            
+            // Selection indicator
+            if isSelected {
+                RoundedRectangle(cornerRadius: 0)
+                    .stroke(Color.blue, lineWidth: 3)
+                    .padding(1)
             }
         }
-        .buttonStyle(PlainButtonStyle())
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
         .aspectRatio(1, contentMode: .fit)
-        .overlay(
-            // Error indicator
-            hasError ? RoundedRectangle(cornerRadius: 0)
-                .stroke(Color.red, lineWidth: 2)
-                .padding(1) : nil
-        )
-        .overlay(
-            // Selection indicator
-            isSelected ? RoundedRectangle(cornerRadius: 0)
-                .stroke(Color.blue, lineWidth: 3)
-                .padding(1) : nil
-        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            print("Cell tapped at (\(row), \(col))")
+            sudokuStore.setSelectedCell(row: row, col: col)
+        }
     }
 }
 
