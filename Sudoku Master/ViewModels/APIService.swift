@@ -3,7 +3,7 @@ import Foundation
 // API endpoints and service methods
 class APIService {
     static let shared = APIService()
-    let baseURL = "https://sudoku-master-app.replit.app/api"
+    let baseURL = "http://localhost:3000/api"
     
     private init() {}
     

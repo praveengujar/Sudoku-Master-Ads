@@ -30,6 +30,8 @@ class SudokuStore: ObservableObject {
     
     init() {
         startTimer()
+        // Load a test puzzle immediately so users can start playing
+        loadTestPuzzle()
     }
     
     deinit {
@@ -58,19 +60,23 @@ class SudokuStore: ObservableObject {
                     }
                 }
             } catch {
-                await MainActor.run {
-                    self.errorMessage = "Failed to load puzzle: \(error.localizedDescription)"
-                    self.isLoading = false
-                    print("Error loading puzzle: \(error)")
-                }
+                print("Error loading puzzle: \(error)")
                 
                 // Try to load a fallback puzzle if online mode fails
                 if !isOfflineMode {
                     print("Attempting to switch to offline mode as fallback")
                     await MainActor.run {
                         self.isOfflineMode = true
+                        // Clear the error message before attempting fallback
+                        self.errorMessage = nil
                     }
                     await loadOfflinePuzzle()
+                } else {
+                    // If already in offline mode and still failing, show error
+                    await MainActor.run {
+                        self.errorMessage = "Failed to load puzzle: \(error.localizedDescription)"
+                        self.isLoading = false
+                    }
                 }
             }
         }
