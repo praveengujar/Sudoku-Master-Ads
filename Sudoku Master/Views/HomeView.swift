@@ -71,9 +71,10 @@ struct HomeView: View {
                         Button(action: {
                             sudokuStore.newGame()
                         }) {
-                            Label("New Game", systemImage: "arrow.clockwise")
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 10)
+                            Image(systemName: "arrow.clockwise")
+                                .font(.title2)
+                                .foregroundColor(.blue)
+                                .frame(width: 44, height: 44)
                                 .background(Color.blue.opacity(0.2))
                                 .cornerRadius(10)
                         }
@@ -81,9 +82,10 @@ struct HomeView: View {
                         Button(action: {
                             sudokuStore.getHint()
                         }) {
-                            Label("Hint", systemImage: "lightbulb")
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 10)
+                            Image(systemName: "lightbulb")
+                                .font(.title2)
+                                .foregroundColor(.orange)
+                                .frame(width: 44, height: 44)
                                 .background(Color.yellow.opacity(0.2))
                                 .cornerRadius(10)
                         }
@@ -91,9 +93,10 @@ struct HomeView: View {
                         Button(action: {
                             sudokuStore.autoSolve()
                         }) {
-                            Label("Solve", systemImage: "checkmark.circle")
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 10)
+                            Image(systemName: "checkmark.circle")
+                                .font(.title2)
+                                .foregroundColor(.green)
+                                .frame(width: 44, height: 44)
                                 .background(Color.green.opacity(0.2))
                                 .cornerRadius(10)
                         }
@@ -101,9 +104,10 @@ struct HomeView: View {
                         Button(action: {
                             sudokuStore.loadTestPuzzle()
                         }) {
-                            Label("Test", systemImage: "wrench")
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 10)
+                            Image(systemName: "wrench")
+                                .font(.title2)
+                                .foregroundColor(.purple)
+                                .frame(width: 44, height: 44)
                                 .background(Color.purple.opacity(0.2))
                                 .cornerRadius(10)
                         }
