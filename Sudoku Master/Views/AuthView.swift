@@ -114,7 +114,7 @@ struct AuthView: View {
                             
                             // Guest mode
                             Button(action: {
-                                // Continue as guest
+                                authManager.continueAsGuest()
                             }) {
                                 Text("Continue as Guest")
                                     .foregroundColor(.secondary)

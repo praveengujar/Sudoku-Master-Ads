@@ -4,6 +4,7 @@ import SwiftUI
 class AuthManager: ObservableObject {
     @Published var currentUser: User?
     @Published var isAuthenticated = false
+    @Published var isGuestMode = false
     @Published var isLoading = false
     @Published var error: String?
     
@@ -75,9 +76,22 @@ class AuthManager: ObservableObject {
             try await APIService.shared.logout()
             self.currentUser = nil
             self.isAuthenticated = false
+            self.isGuestMode = false
             self.error = nil
         } catch {
             self.error = "Logout failed: \(error.localizedDescription)"
         }
+    }
+    
+    @MainActor
+    func continueAsGuest() {
+        self.currentUser = nil
+        self.isAuthenticated = false
+        self.isGuestMode = true
+        self.error = nil
+    }
+    
+    var isLoggedInOrGuest: Bool {
+        return isAuthenticated || isGuestMode
     }
 }
