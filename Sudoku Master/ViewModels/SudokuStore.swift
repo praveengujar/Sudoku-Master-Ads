@@ -1,6 +1,8 @@
 import Foundation
 import SwiftUI
+import Combine
 
+@MainActor
 class SudokuStore: ObservableObject {
     // MARK: - Published Properties
     
@@ -23,18 +25,27 @@ class SudokuStore: ObservableObject {
     // Offline mode properties
     @Published var isOfflineMode = false
     
-    // Timer
+    // Performance optimizations
+    private var isTimerActive = false
     private var timer: Timer?
+    private var cancellables = Set<AnyCancellable>()
+    private var validationDebouncer = PassthroughSubject<(Int, Int, Int), Never>()
     
-    // Dependencies
-    private var offlineStorage: OfflineStorage?
-    private var authManager: AuthManager?
+    // Cache for validation results
+    private var validationCache: [String: Bool] = [:]
+    private let maxCacheSize = 100
+    
+    // Dependencies - using weak references to prevent retain cycles
+    private weak var offlineStorage: OfflineStorage?
+    private weak var authManager: AuthManager?
+    
+    // Background queue for heavy operations
+    private let backgroundQueue = DispatchQueue(label: "sudoku.background", qos: .userInitiated)
     
     // MARK: - Initialization
     
     init() {
-        startTimer()
-        // Load a test puzzle immediately so users can start playing
+        setupValidationDebouncer()
         loadTestPuzzle()
     }
     
@@ -44,53 +55,85 @@ class SudokuStore: ObservableObject {
     }
     
     deinit {
-        stopTimer()
+        timer?.invalidate()
+        timer = nil
+        cancellables.removeAll()
     }
     
-    // MARK: - Game Actions
+    // MARK: - Performance Optimizations
+    
+    private func setupValidationDebouncer() {
+        validationDebouncer
+            .debounce(for: .milliseconds(200), scheduler: DispatchQueue.main)
+            .sink { [weak self] row, col, value in
+                Task { [weak self] in
+                    await self?.performValidation(row: row, col: col, value: value)
+                }
+            }
+            .store(in: &cancellables)
+    }
+    
+    private func getCacheKey(grid: SudokuGrid, row: Int, col: Int, value: Int) -> String {
+        let gridHash = grid.flatMap { $0.map { $0?.description ?? "nil" } }.joined()
+        return "\(gridHash)_\(row)_\(col)_\(value)"
+    }
+    
+    private func cacheValidationResult(key: String, result: Bool) {
+        if validationCache.count >= maxCacheSize {
+            // Remove oldest entries (simple FIFO)
+            let keysToRemove = Array(validationCache.keys.prefix(maxCacheSize / 2))
+            keysToRemove.forEach { validationCache.removeValue(forKey: $0) }
+        }
+        validationCache[key] = result
+    }
+    
+    // MARK: - Game Actions (Optimized)
     
     func newGame() {
         print("🎯 Starting new game with difficulty: \(difficulty.rawValue), offline mode: \(isOfflineMode)")
         isLoading = true
         errorMessage = nil
         
-        Task {
+        Task { [weak self] in
+            guard let self = self else { return }
+            
             do {
-                if isOfflineMode {
+                if self.isOfflineMode {
                     print("🎯 Using offline mode")
-                    await loadOfflinePuzzle()
+                    await self.loadOfflinePuzzle()
                 } else {
                     print("🎯 Using online mode - calling API")
-                    let puzzle = try await APIService.shared.generatePuzzle(difficulty: difficulty)
-                    await MainActor.run {
-                        self.grid = puzzle.grid
-                        self.originalGrid = puzzle.grid
-                        self.puzzleId = puzzle.id
-                        resetGameState()
-                        isLoading = false
-                        print("🎯 Successfully loaded API puzzle with \(puzzle.grid.flatMap { $0 }.compactMap { $0 }.count) filled cells")
-                    }
+                    let puzzle = try await APIService.shared.generatePuzzle(difficulty: self.difficulty)
+                    await self.updateGameState(with: puzzle)
                 }
             } catch {
-                print("🎯 Error loading puzzle: \(error)")
-                
-                // Try to load a fallback puzzle if online mode fails
-                if !isOfflineMode {
-                    print("🎯 API failed - switching to offline mode as fallback")
-                    await MainActor.run {
-                        self.isOfflineMode = true
-                        // Clear the error message before attempting fallback
-                        self.errorMessage = nil
-                    }
-                    await loadOfflinePuzzle()
-                } else {
-                    // If already in offline mode and still failing, show error
-                    await MainActor.run {
-                        self.errorMessage = "Failed to load puzzle: \(error.localizedDescription)"
-                        self.isLoading = false
-                    }
-                }
+                await self.handleGameLoadError(error)
             }
+        }
+    }
+    
+    @MainActor
+    private func updateGameState(with puzzle: SudokuPuzzle) async {
+        self.grid = puzzle.grid
+        self.originalGrid = puzzle.grid
+        self.puzzleId = puzzle.id
+        resetGameState()
+        isLoading = false
+        print("🎯 Successfully loaded API puzzle with \(puzzle.grid.flatMap { $0 }.compactMap { $0 }.count) filled cells")
+    }
+    
+    @MainActor
+    private func handleGameLoadError(_ error: Error) async {
+        print("🎯 Error loading puzzle: \(error)")
+        
+        if !isOfflineMode {
+            print("🎯 API failed - switching to offline mode as fallback")
+            self.isOfflineMode = true
+            self.errorMessage = nil
+            await loadOfflinePuzzle()
+        } else {
+            self.errorMessage = "Failed to load puzzle: \(error.localizedDescription)"
+            self.isLoading = false
         }
     }
     
@@ -110,45 +153,51 @@ class SudokuStore: ObservableObject {
             isLoading = false
             print("Successfully loaded offline puzzle with \(puzzle.grid.flatMap { $0 }.compactMap { $0 }.count) filled cells")
         } else {
-            errorMessage = "No offline puzzles available for \(difficulty.displayName) difficulty. Loading fallback puzzle..."
-            print("No offline puzzles available for difficulty: \(difficulty.displayName), creating fallback puzzle")
-            
-            // Create a simple fallback puzzle
-            let fallbackPuzzle = createFallbackPuzzle()
-            self.grid = fallbackPuzzle.grid
-            self.originalGrid = fallbackPuzzle.grid
-            self.puzzleId = fallbackPuzzle.id
-            resetGameState()
-            isLoading = false
-            print("Created fallback puzzle with \(fallbackPuzzle.grid.flatMap { $0 }.compactMap { $0 }.count) filled cells")
+            await loadFallbackPuzzle()
         }
+    }
+    
+    @MainActor
+    private func loadFallbackPuzzle() async {
+        errorMessage = "No offline puzzles available for \(difficulty.displayName) difficulty. Loading fallback puzzle..."
+        print("No offline puzzles available for difficulty: \(difficulty.displayName), creating fallback puzzle")
+        
+        // Create fallback puzzle on background queue to avoid blocking UI
+        let fallbackPuzzle = await withTaskGroup(of: SudokuPuzzle.self) { group in
+            group.addTask { [weak self] in
+                return await self?.createFallbackPuzzleAsync() ?? SudokuPuzzle(id: -1, grid: [], solution: [], difficulty: .easy)
+            }
+            return await group.first(where: { _ in true }) ?? SudokuPuzzle(id: -1, grid: [], solution: [], difficulty: .easy)
+        }
+        
+        self.grid = fallbackPuzzle.grid
+        self.originalGrid = fallbackPuzzle.grid
+        self.puzzleId = fallbackPuzzle.id
+        resetGameState()
+        isLoading = false
+        print("Created fallback puzzle with \(fallbackPuzzle.grid.flatMap { $0 }.compactMap { $0 }.count) filled cells")
     }
     
     func loadCustomPuzzle(customGrid: SudokuGrid, customSolution: SudokuGrid? = nil) {
         self.originalGrid = customGrid
         self.grid = customGrid
         
-        // If no solution is provided, attempt to solve the puzzle
         if let solution = customSolution {
-            // Use the provided solution
             resetGameState()
         } else {
-            // Solve the puzzle to verify it's solvable
-            Task {
+            Task { [weak self] in
                 do {
-                    let solution = try await solveGrid(customGrid)
-                    if solution.isEmpty {
-                        await MainActor.run {
-                            self.errorMessage = "Custom puzzle is not solvable"
-                        }
-                    } else {
-                        await MainActor.run {
-                            resetGameState()
+                    let solution = try await self?.solveGrid(customGrid) ?? []
+                    await MainActor.run { [weak self] in
+                        if solution.isEmpty {
+                            self?.errorMessage = "Custom puzzle is not solvable"
+                        } else {
+                            self?.resetGameState()
                         }
                     }
                 } catch {
-                    await MainActor.run {
-                        self.errorMessage = "Error validating custom puzzle: \(error.localizedDescription)"
+                    await MainActor.run { [weak self] in
+                        self?.errorMessage = "Error validating custom puzzle: \(error.localizedDescription)"
                     }
                 }
             }
@@ -181,10 +230,8 @@ class SudokuStore: ObservableObject {
         print("Entering number \(number) at position (\(row), \(col))")
         grid[row][col] = number
         
-        // Validate the move
-        Task {
-            await validateMove(row: row, col: col, value: number)
-        }
+        // Use debounced validation to improve performance
+        validationDebouncer.send((row, col, number))
     }
     
     func eraseNumber() {
@@ -210,47 +257,46 @@ class SudokuStore: ObservableObject {
             return
         }
         
-        // Get the solution for the current grid
-        Task {
+        Task { [weak self] in
             do {
-                let solution = try await solveGrid(grid)
-                if !solution.isEmpty {
-                    await MainActor.run {
+                let solution = try await self?.solveGrid(self?.grid ?? []) ?? []
+                await MainActor.run { [weak self] in
+                    if !solution.isEmpty {
                         let hintValue = solution[row][col]
-                        self.hintCell = (row, col, hintValue)
+                        self?.hintCell = (row, col, hintValue)
                         
                         // Clear the hint after 3 seconds
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                            self.hintCell = (nil, nil, nil)
+                        Task { [weak self] in
+                            try? await Task.sleep(nanoseconds: 3_000_000_000)
+                            await MainActor.run {
+                                self?.hintCell = (nil, nil, nil)
+                            }
                         }
                     }
                 }
             } catch {
-                await MainActor.run {
-                    self.errorMessage = "Failed to generate hint: \(error.localizedDescription)"
+                await MainActor.run { [weak self] in
+                    self?.errorMessage = "Failed to generate hint: \(error.localizedDescription)"
                 }
             }
         }
     }
     
     func autoSolve() {
-        Task {
+        Task { [weak self] in
             do {
-                let solution = try await solveGrid(grid)
-                if !solution.isEmpty {
-                    await MainActor.run {
-                        self.grid = solution
-                        // Don't show victory animation for auto-solved puzzles
-                        checkVictoryWithoutAnimation()
-                    }
-                } else {
-                    await MainActor.run {
-                        self.errorMessage = "Puzzle cannot be solved from current state"
+                let solution = try await self?.solveGrid(self?.grid ?? []) ?? []
+                await MainActor.run { [weak self] in
+                    if !solution.isEmpty {
+                        self?.grid = solution
+                        self?.checkVictoryWithoutAnimation()
+                    } else {
+                        self?.errorMessage = "Puzzle cannot be solved from current state"
                     }
                 }
             } catch {
-                await MainActor.run {
-                    self.errorMessage = "Failed to solve puzzle: \(error.localizedDescription)"
+                await MainActor.run { [weak self] in
+                    self?.errorMessage = "Failed to solve puzzle: \(error.localizedDescription)"
                 }
             }
         }
@@ -266,19 +312,21 @@ class SudokuStore: ObservableObject {
             }
         }
         
-        // Clear errors
+        // Clear errors and cache
         errors.removeAll()
+        validationCache.removeAll()
     }
     
     func closeVictoryModal() {
         showVictoryAlert = false
     }
     
-    // MARK: - Game Logic
+    // MARK: - Optimized Game Logic
     
     private func resetGameState() {
         selectedCell = (nil, nil)
         errors.removeAll()
+        validationCache.removeAll()
         hintCell = (nil, nil, nil)
         isVictory = false
         showVictoryAlert = false
@@ -287,26 +335,39 @@ class SudokuStore: ObservableObject {
         restartTimer()
     }
     
-    @MainActor
-    private func validateMove(row: Int, col: Int, value: Int) async {
+    private func performValidation(row: Int, col: Int, value: Int) async {
+        let cacheKey = getCacheKey(grid: grid, row: row, col: col, value: value)
+        
+        // Check cache first
+        if let cachedResult = validationCache[cacheKey] {
+            await MainActor.run { [weak self] in
+                let position = CellPosition(row: row, col: col)
+                self?.errors[position] = !cachedResult
+                self?.checkVictory()
+            }
+            return
+        }
+        
         do {
+            let isValid: Bool
             if isOfflineMode {
-                // Validate locally
-                let position = CellPosition(row: row, col: col)
-                let isValid = validateLocalMove(row: row, col: col, value: value)
-                errors[position] = !isValid
+                isValid = validateLocalMove(row: row, col: col, value: value)
             } else {
-                // Validate via API
-                let isValid = try await APIService.shared.validateMove(grid: grid, row: row, col: col, value: value)
-                let position = CellPosition(row: row, col: col)
-                errors[position] = !isValid
+                isValid = try await APIService.shared.validateMove(grid: grid, row: row, col: col, value: value)
             }
             
-            // Check if the puzzle is complete after the move
-            checkVictory()
+            // Cache the result
+            cacheValidationResult(key: cacheKey, result: isValid)
             
+            await MainActor.run { [weak self] in
+                let position = CellPosition(row: row, col: col)
+                self?.errors[position] = !isValid
+                self?.checkVictory()
+            }
         } catch {
-            errorMessage = "Failed to validate move: \(error.localizedDescription)"
+            await MainActor.run { [weak self] in
+                self?.errorMessage = "Failed to validate move: \(error.localizedDescription)"
+            }
         }
     }
     
@@ -341,53 +402,62 @@ class SudokuStore: ObservableObject {
     }
     
     func checkVictory() {
-        // Check if the grid is completely filled
-        let allFilled = grid.allSatisfy { row in
-            row.allSatisfy { $0 != nil }
-        }
+        // Optimize victory check with early returns
+        guard grid.allSatisfy({ row in row.allSatisfy { $0 != nil } }) else { return }
+        guard errors.allSatisfy({ !$0.value }) else { return }
         
-        // Check if there are no errors
-        let noErrors = errors.allSatisfy { !$0.value }
+        isVictory = true
+        showVictoryAlert = true
+        stopTimer()
         
-        if allFilled && noErrors {
-            isVictory = true
-            showVictoryAlert = true
-            stopTimer()
-            
-            // Save game progress
-            saveProgress(isCompleted: true)
+        // Save game progress asynchronously
+        Task { [weak self] in
+            await self?.saveProgressAsync(isCompleted: true)
         }
     }
     
     private func checkVictoryWithoutAnimation() {
-        // Check if the grid is completely filled
-        let allFilled = grid.allSatisfy { row in
-            row.allSatisfy { $0 != nil }
-        }
+        guard grid.allSatisfy({ row in row.allSatisfy { $0 != nil } }) else { return }
+        guard errors.allSatisfy({ !$0.value }) else { return }
         
-        // Check if there are no errors
-        let noErrors = errors.allSatisfy { !$0.value }
+        isVictory = true
+        stopTimer()
         
-        if allFilled && noErrors {
-            isVictory = true
-            stopTimer()
-            
-            // Save game progress but don't show animation
-            saveProgress(isCompleted: true)
+        Task { [weak self] in
+            await self?.saveProgressAsync(isCompleted: true)
         }
     }
     
     private func solveGrid(_ grid: SudokuGrid) async throws -> SudokuGrid {
         if isOfflineMode {
-            return solveLocalGrid(grid)
+            return await Task {
+                return self.solveLocalGrid(grid)
+            }.value
         } else {
             return try await APIService.shared.solvePuzzle(grid: grid)
         }
     }
     
     private func solveLocalGrid(_ grid: SudokuGrid) -> SudokuGrid {
-        // Simple backtracking solver
+        // Optimized backtracking solver with better heuristics
         var gridCopy = grid
+        var emptyCells: [(Int, Int)] = []
+        
+        // Pre-collect empty cells for better performance
+        for row in 0..<9 {
+            for col in 0..<9 {
+                if gridCopy[row][col] == nil {
+                    emptyCells.append((row, col))
+                }
+            }
+        }
+        
+        // Sort empty cells by constraint (Most Constrained Variable heuristic)
+        emptyCells.sort { pos1, pos2 in
+            let constraints1 = countConstraints(gridCopy, pos1.0, pos1.1)
+            let constraints2 = countConstraints(gridCopy, pos2.0, pos2.1)
+            return constraints1 > constraints2
+        }
         
         func isValid(row: Int, col: Int, num: Int) -> Bool {
             // Check row
@@ -419,47 +489,77 @@ class SudokuStore: ObservableObject {
             return true
         }
         
-        func solve() -> Bool {
-            for row in 0..<9 {
-                for col in 0..<9 {
-                    if gridCopy[row][col] == nil {
-                        for num in 1...9 {
-                            if isValid(row: row, col: col, num: num) {
-                                gridCopy[row][col] = num
-                                
-                                if solve() {
-                                    return true
-                                }
-                                
-                                gridCopy[row][col] = nil
-                            }
-                        }
-                        return false
+        func solve(cellIndex: Int = 0) -> Bool {
+            guard cellIndex < emptyCells.count else { return true }
+            
+            let (row, col) = emptyCells[cellIndex]
+            
+            for num in 1...9 {
+                if isValid(row: row, col: col, num: num) {
+                    gridCopy[row][col] = num
+                    
+                    if solve(cellIndex: cellIndex + 1) {
+                        return true
                     }
+                    
+                    gridCopy[row][col] = nil
                 }
             }
-            return true
+            return false
         }
         
-        if solve() {
-            return gridCopy
-        } else {
-            return []
-        }
+        return solve() ? gridCopy : []
     }
     
-    // MARK: - Timer management
+    private func countConstraints(_ grid: SudokuGrid, _ row: Int, _ col: Int) -> Int {
+        var used = Set<Int>()
+        
+        // Add row constraints
+        for c in 0..<9 {
+            if let value = grid[row][c] {
+                used.insert(value)
+            }
+        }
+        
+        // Add column constraints
+        for r in 0..<9 {
+            if let value = grid[r][col] {
+                used.insert(value)
+            }
+        }
+        
+        // Add box constraints
+        let boxRow = (row / 3) * 3
+        let boxCol = (col / 3) * 3
+        
+        for r in boxRow..<boxRow+3 {
+            for c in boxCol..<boxCol+3 {
+                if let value = grid[r][c] {
+                    used.insert(value)
+                }
+            }
+        }
+        
+        return used.count
+    }
+    
+    // MARK: - Optimized Timer Management
     
     private func startTimer() {
+        guard !isTimerActive else { return }
+        
+        isTimerActive = true
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            self.timeSpentSeconds += 1
+            Task { @MainActor [weak self] in
+                self?.timeSpentSeconds += 1
+            }
         }
     }
     
     private func stopTimer() {
         timer?.invalidate()
         timer = nil
+        isTimerActive = false
     }
     
     private func restartTimer() {
@@ -467,37 +567,41 @@ class SudokuStore: ObservableObject {
         startTimer()
     }
     
-    // MARK: - Data Persistence
+    // MARK: - Optimized Data Persistence
     
     func saveProgress(isCompleted: Bool) {
+        Task { [weak self] in
+            await self?.saveProgressAsync(isCompleted: isCompleted)
+        }
+    }
+    
+    private func saveProgressAsync(isCompleted: Bool) async {
         guard let puzzleId = puzzleId else { return }
         
-        Task {
-            do {
-                if isOfflineMode {
-                    saveLocalProgress(isCompleted: isCompleted)
-                } else {
-                    if let userId = authManager?.currentUser?.id {
-                        let _ = try await APIService.shared.saveGameProgress(
-                            userId: userId,
-                            puzzleId: puzzleId,
-                            currentGrid: grid,
-                            isCompleted: isCompleted,
-                            timeSpentSeconds: timeSpentSeconds
-                        )
-                    }
+        do {
+            if isOfflineMode {
+                await saveLocalProgressAsync(isCompleted: isCompleted)
+            } else {
+                if let userId = authManager?.currentUser?.id {
+                    let _ = try await APIService.shared.saveGameProgress(
+                        userId: userId,
+                        puzzleId: puzzleId,
+                        currentGrid: grid,
+                        isCompleted: isCompleted,
+                        timeSpentSeconds: timeSpentSeconds
+                    )
                 }
-            } catch {
-                await MainActor.run {
-                    self.errorMessage = "Failed to save progress: \(error.localizedDescription)"
-                }
+            }
+        } catch {
+            await MainActor.run { [weak self] in
+                self?.errorMessage = "Failed to save progress: \(error.localizedDescription)"
             }
         }
     }
     
-    private func saveLocalProgress(isCompleted: Bool) {
-        guard let puzzleId = puzzleId else { return }
-        guard let offlineStorage = offlineStorage else { return }
+    private func saveLocalProgressAsync(isCompleted: Bool) async {
+        guard let puzzleId = puzzleId,
+              let offlineStorage = offlineStorage else { return }
         
         let userId = authManager?.currentUser?.id
         
@@ -512,15 +616,24 @@ class SudokuStore: ObservableObject {
             timestamp: Date()
         )
         
-        offlineStorage.saveGameProgress(record: record)
+        await Task.detached {
+            await offlineStorage.saveGameProgress(record: record)
+        }.value
     }
     
-    // MARK: - Fallback Puzzle Creation
+    // MARK: - Optimized Fallback Puzzle Creation
     
-    private func createFallbackPuzzle() -> SudokuPuzzle {
+    private func createFallbackPuzzleAsync() async -> SudokuPuzzle {
+        let currentDifficulty = difficulty
+        return await Task {
+            Self.createFallbackPuzzle(for: currentDifficulty)
+        }.value
+    }
+    
+    private static func createFallbackPuzzle(for difficulty: SudokuDifficulty) -> SudokuPuzzle {
         print("🎯 Creating fallback puzzle for difficulty: \(difficulty.rawValue)")
         
-        // Create difficulty-specific puzzle templates
+        // Pre-computed solution for better performance
         let solution: SudokuGrid = [
             [5, 3, 4, 6, 7, 8, 9, 1, 2],
             [6, 7, 2, 1, 9, 5, 3, 4, 8],
@@ -533,16 +646,26 @@ class SudokuStore: ObservableObject {
             [3, 4, 5, 2, 8, 6, 1, 7, 9]
         ]
         
-        // Create grid with difficulty-based number of cells filled
         var grid = Array(repeating: Array(repeating: nil as Int?, count: 9), count: 9)
         
-        // Define positions to fill based on difficulty
-        let positions: [(Int, Int)]
+        // Optimized position selection based on difficulty
+        let positions = Self.getPositionsForDifficulty(difficulty)
         
+        // Fill the grid efficiently
+        for (row, col) in positions {
+            grid[row][col] = solution[row][col]
+        }
+        
+        let filledCells = positions.count
+        print("🎯 Created fallback puzzle with \(filledCells) filled cells for \(difficulty.rawValue)")
+        
+        return SudokuPuzzle(id: -1, grid: grid, solution: solution, difficulty: difficulty)
+    }
+    
+    private static func getPositionsForDifficulty(_ difficulty: SudokuDifficulty) -> [(Int, Int)] {
         switch difficulty {
         case .easy:
-            // Easy: 45-50 filled cells (more clues)
-            positions = [
+            return [
                 (0,0), (0,1), (0,2), (0,4), (0,6), (0,7),
                 (1,0), (1,2), (1,3), (1,4), (1,5), (1,7), (1,8),
                 (2,0), (2,1), (2,3), (2,5), (2,7), (2,8),
@@ -553,10 +676,8 @@ class SudokuStore: ObservableObject {
                 (7,0), (7,2), (7,3), (7,4), (7,5), (7,7), (7,8),
                 (8,0), (8,1), (8,2), (8,4), (8,6), (8,7), (8,8)
             ]
-            
         case .medium:
-            // Medium: 35-40 filled cells (moderate clues)
-            positions = [
+            return [
                 (0,0), (0,2), (0,4), (0,7),
                 (1,0), (1,3), (1,5), (1,8),
                 (2,1), (2,3), (2,5), (2,7),
@@ -568,10 +689,8 @@ class SudokuStore: ObservableObject {
                 (8,1), (8,4), (8,6), (8,8),
                 (2,0), (3,2), (4,0), (4,8), (5,2), (6,0), (7,1)
             ]
-            
         case .hard:
-            // Hard: 25-30 filled cells (fewer clues)
-            positions = [
+            return [
                 (0,0), (0,4), (0,8),
                 (1,2), (1,6),
                 (2,1), (2,7),
@@ -584,16 +703,6 @@ class SudokuStore: ObservableObject {
                 (1,0), (3,4), (4,1), (4,7), (5,4), (7,8)
             ]
         }
-        
-        // Fill the grid with solution values at specified positions
-        for (row, col) in positions {
-            grid[row][col] = solution[row][col]
-        }
-        
-        let filledCells = grid.flatMap { $0 }.compactMap { $0 }.count
-        print("🎯 Created fallback puzzle with \(filledCells) filled cells for \(difficulty.rawValue)")
-        
-        return SudokuPuzzle(id: -1, grid: grid, solution: solution, difficulty: difficulty)
     }
     
     // MARK: - Debug Methods
@@ -602,13 +711,17 @@ class SudokuStore: ObservableObject {
         isLoading = true
         errorMessage = nil
         
-        let testPuzzle = createFallbackPuzzle()
-        self.grid = testPuzzle.grid
-        self.originalGrid = testPuzzle.grid
-        self.puzzleId = testPuzzle.id
-        resetGameState()
-        isLoading = false
-        print("Loaded test puzzle with \(testPuzzle.grid.flatMap { $0 }.compactMap { $0 }.count) filled cells")
+        Task { [weak self] in
+            let testPuzzle = await self?.createFallbackPuzzleAsync() ?? SudokuPuzzle(id: -1, grid: [], solution: [], difficulty: .easy)
+            await MainActor.run { [weak self] in
+                self?.grid = testPuzzle.grid
+                self?.originalGrid = testPuzzle.grid
+                self?.puzzleId = testPuzzle.id
+                self?.resetGameState()
+                self?.isLoading = false
+                print("Loaded test puzzle with \(testPuzzle.grid.flatMap { $0 }.compactMap { $0 }.count) filled cells")
+            }
+        }
     }
     
     // MARK: - Offline Mode
@@ -618,48 +731,34 @@ class SudokuStore: ObservableObject {
     }
     
     func downloadPuzzlesForOfflinePlay() async -> Bool {
-        guard !isOfflineMode else { return false }
-        guard let offlineStorage = offlineStorage else { return false }
+        guard !isOfflineMode,
+              let offlineStorage = offlineStorage else { return false }
         
         var puzzlesByDifficulty: [String: [SudokuPuzzle]] = [:]
         
-        for difficulty in SudokuDifficulty.allCases {
-            var puzzles: [SudokuPuzzle] = []
-            
-            // Download 5 puzzles for each difficulty
-            for _ in 0..<5 {
-                do {
-                    let puzzle = try await APIService.shared.generatePuzzle(difficulty: difficulty)
-                    puzzles.append(puzzle)
-                } catch {
-                    await MainActor.run {
-                        self.errorMessage = "Failed to download puzzles: \(error.localizedDescription)"
+        await withTaskGroup(of: (SudokuDifficulty, [SudokuPuzzle]).self) { group in
+            for difficulty in SudokuDifficulty.allCases {
+                group.addTask {
+                    var puzzles: [SudokuPuzzle] = []
+                    for _ in 0..<5 {
+                        do {
+                            let puzzle = try await APIService.shared.generatePuzzle(difficulty: difficulty)
+                            puzzles.append(puzzle)
+                        } catch {
+                            print("Failed to download puzzle for \(difficulty): \(error)")
+                            break
+                        }
                     }
-                    return false
+                    return (difficulty, puzzles)
                 }
             }
             
-            puzzlesByDifficulty[difficulty.rawValue] = puzzles
+            for await (difficulty, puzzles) in group {
+                puzzlesByDifficulty[difficulty.rawValue] = puzzles
+            }
         }
         
         return offlineStorage.savePuzzles(puzzles: puzzlesByDifficulty)
     }
 }
 
-// MARK: - API Extensions
-
-extension APIService {
-    func validateMove(grid: SudokuGrid, row: Int, col: Int, value: Int) async throws -> Bool {
-        let endpoint = "\(baseURL)/sudoku/validate"
-        let body = ValidateMoveRequest(grid: grid, row: row, col: col, value: value)
-        let response: [String: Bool] = try await performRequest(endpoint: endpoint, method: "POST", body: body)
-        return response["isValid"] ?? false
-    }
-    
-    func solvePuzzle(grid: SudokuGrid) async throws -> SudokuGrid {
-        let endpoint = "\(baseURL)/sudoku/solve"
-        let body = SolvePuzzleRequest(grid: grid)
-        let response: [String: SudokuGrid] = try await performRequest(endpoint: endpoint, method: "POST", body: body)
-        return response["solution"] ?? []
-    }
-}
