@@ -217,15 +217,19 @@ class PerformanceMonitor: ObservableObject {
         memoryTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             
-            let usage = self.getCurrentMemoryUsage()
-            self.memoryReadings.append(Double(usage))
-            
-            // Keep only recent readings
-            if self.memoryReadings.count > 100 {
-                self.memoryReadings.removeFirst()
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                
+                let usage = self.getCurrentMemoryUsage()
+                self.memoryReadings.append(Double(usage))
+                
+                // Keep only recent readings
+                if self.memoryReadings.count > 100 {
+                    self.memoryReadings.removeFirst()
+                }
+                
+                self.updateCurrentMetrics()
             }
-            
-            self.updateCurrentMetrics()
         }
     }
     

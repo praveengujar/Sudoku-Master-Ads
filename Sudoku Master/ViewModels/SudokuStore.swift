@@ -38,6 +38,12 @@ class SudokuStore: ObservableObject {
     // Dependencies - using weak references to prevent retain cycles
     private weak var offlineStorage: OfflineStorage?
     private weak var authManager: AuthManager?
+    private weak var adManager: AdManager?
+    
+    // Ad integration tracking
+    private var gamesCompleted = 0
+    private var adsShownCount = 0
+    private let adFrequency = 3 // Show ad every 3 completed games
     
     // Background queue for heavy operations
     private let backgroundQueue = DispatchQueue(label: "sudoku.background", qos: .userInitiated)
@@ -52,6 +58,7 @@ class SudokuStore: ObservableObject {
     func setDependencies(offlineStorage: OfflineStorage, authManager: AuthManager) {
         self.offlineStorage = offlineStorage
         self.authManager = authManager
+        self.adManager = AdManager.shared
     }
     
     deinit {
@@ -319,6 +326,31 @@ class SudokuStore: ObservableObject {
     
     func closeVictoryModal() {
         showVictoryAlert = false
+        gamesCompleted += 1
+        
+        // Show interstitial ad based on frequency and performance optimization
+        Task { [weak self] in
+            await self?.handlePostVictoryAd()
+        }
+    }
+    
+    private func handlePostVictoryAd() async {
+        guard let adManager = adManager else { return }
+        
+        // Show ad every X completed games to balance UX and revenue
+        if gamesCompleted >= adFrequency && gamesCompleted % adFrequency == 0 {
+            await MainActor.run {
+                // Add small delay for better UX (let victory celebration settle)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    PerformanceMonitor.shared.startOperation("interstitial_ad_display")
+                    adManager.showInterstitialAd()
+                    PerformanceMonitor.shared.endOperation("interstitial_ad_display")
+                    
+                    self.adsShownCount += 1
+                    print("📺 Interstitial ad shown after \(self.gamesCompleted) games completed")
+                }
+            }
+        }
     }
     
     // MARK: - Optimized Game Logic
@@ -413,6 +445,9 @@ class SudokuStore: ObservableObject {
         // Save game progress asynchronously
         Task { [weak self] in
             await self?.saveProgressAsync(isCompleted: true)
+            
+            // Track ad performance metrics
+            PerformanceMonitor.shared.recordCustomMetric(name: "game_completion", value: 1)
         }
     }
     

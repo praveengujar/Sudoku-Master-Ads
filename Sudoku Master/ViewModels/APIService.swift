@@ -100,7 +100,7 @@ class APIService: ObservableObject {
         return try await performOptimizedRequest(
             endpoint: endpoint,
             method: "GET",
-            body: nil as Never?,
+            body: EmptyRequest(),
             cachePolicy: .returnCacheDataElseLoad,
             cacheTimeout: 60 // Cache user data for 1 minute
         )
@@ -111,7 +111,7 @@ class APIService: ObservableObject {
         let _: EmptyResponse = try await performOptimizedRequest(
             endpoint: endpoint,
             method: "POST",
-            body: nil as Never?,
+            body: EmptyRequest(),
             cachePolicy: .reloadIgnoringCacheData
         )
         
@@ -130,7 +130,7 @@ class APIService: ObservableObject {
         let puzzle: SudokuPuzzle = try await performOptimizedRequest(
             endpoint: endpoint,
             method: "GET",
-            body: nil as Never?,
+            body: EmptyRequest(),
             cachePolicy: .reloadIgnoringCacheData
         )
         
@@ -161,7 +161,7 @@ class APIService: ObservableObject {
         return try await performOptimizedRequest(
             endpoint: endpoint,
             method: "GET",
-            body: nil as Never?,
+            body: EmptyRequest(),
             cachePolicy: .returnCacheDataElseLoad,
             cacheTimeout: 30 // Cache stats for 30 seconds
         )
@@ -422,6 +422,11 @@ class APIService: ObservableObject {
 }
 
 // MARK: - Supporting Types
+
+// Empty request type for iOS 14+ compatibility
+struct EmptyRequest: Codable {
+    // Empty struct for GET requests that don't need a body
+}
 
 private class CachedResponse {
     let data: Data

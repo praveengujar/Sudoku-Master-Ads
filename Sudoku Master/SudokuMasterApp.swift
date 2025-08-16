@@ -11,6 +11,7 @@ struct SudokuMasterApp: App {
                 .environmentObject(appDelegate.authManager)
                 .environmentObject(appDelegate.networkMonitor)
                 .environmentObject(appDelegate.offlineStorage)
+                .environmentObject(appDelegate.adManager)
         }
     }
 }

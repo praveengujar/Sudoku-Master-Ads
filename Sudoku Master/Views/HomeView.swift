@@ -1,15 +1,21 @@
 import SwiftUI
+import UIKit
 
 struct HomeView: View {
     @EnvironmentObject var sudokuStore: SudokuStore
     @EnvironmentObject var authManager: AuthManager
     @EnvironmentObject var networkMonitor: NetworkMonitor
     @EnvironmentObject var offlineStorage: OfflineStorage
+    @StateObject private var adManager = AdManager.shared
     @State private var showProfileSheet = false
     
     // Performance optimizations
     @State private var isViewReady = false
     @State private var cachedGridState: CachedGridState?
+    
+    // Ad integration
+    @State private var bannerViewController: UIViewController?
+    @State private var showingRewardedAdForHint = false
     
     var body: some View {
         NavigationView {
@@ -48,6 +54,10 @@ struct HomeView: View {
             }
             .onAppear {
                 setupView()
+                setupAdIntegration()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .adRewardEarned)) { notification in
+                handleAdReward(notification)
             }
             .onChange(of: offlineStorage.isOfflineMode) { newValue in
                 sudokuStore.setOfflineMode(isOffline: newValue)
@@ -69,6 +79,34 @@ struct HomeView: View {
         sudokuStore.setOfflineMode(isOffline: offlineStorage.isOfflineMode)
         
         isViewReady = true
+    }
+    
+    private func setupAdIntegration() {
+        // Create banner view controller for ads
+        bannerViewController = UIViewController()
+        
+        // Listen for ad reward notifications
+        NotificationCenter.default.addObserver(
+            forName: .adRewardEarned,
+            object: nil,
+            queue: .main
+        ) { notification in
+            handleAdReward(notification)
+        }
+    }
+    
+    private func handleAdReward(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let amount = userInfo["amount"] as? Int,
+              let type = userInfo["type"] as? String else { return }
+        
+        print("🎁 Ad reward earned: \(amount) from \(type)")
+        
+        // If this was for a hint, provide the hint
+        if showingRewardedAdForHint {
+            sudokuStore.getHint()
+            showingRewardedAdForHint = false
+        }
     }
     
     // Helper function to check if grid is empty
@@ -109,6 +147,13 @@ private struct MainContentView: View {
             // Game controls
             GameControlsView()
                 .environmentObject(sudokuStore)
+                .environmentObject(adManager)
+            
+            // Banner ad at bottom
+            BannerAdView()
+                .environmentObject(adManager)
+                .frame(height: 60)
+                .padding(.horizontal)
             
             #if DEBUG
             // Debug info (only in debug builds)
@@ -254,6 +299,8 @@ private struct DifficultyButton: View {
 
 private struct ActionButtonsView: View {
     @EnvironmentObject var sudokuStore: SudokuStore
+    @EnvironmentObject var adManager: AdManager
+    @State private var showingHintAdChoice = false
     
     var body: some View {
         HStack(spacing: 20) {
@@ -271,9 +318,7 @@ private struct ActionButtonsView: View {
                 icon: "lightbulb",
                 color: .orange,
                 action: {
-                    PerformanceMonitor.shared.startOperation("get_hint")
-                    sudokuStore.getHint()
-                    PerformanceMonitor.shared.endOperation("get_hint")
+                    showingHintAdChoice = true
                 }
             )
             
@@ -296,6 +341,27 @@ private struct ActionButtonsView: View {
                 }
             )
             #endif
+        }
+        .alert("Get a Hint", isPresented: $showingHintAdChoice) {
+            Button("Watch Ad for Free Hint") {
+                adManager.showRewardedAd { success, reward in
+                    if success {
+                        PerformanceMonitor.shared.startOperation("get_hint")
+                        sudokuStore.getHint()
+                        PerformanceMonitor.shared.endOperation("get_hint")
+                    }
+                }
+            }
+            
+            Button("Use Free Hint") {
+                PerformanceMonitor.shared.startOperation("get_hint")
+                sudokuStore.getHint()
+                PerformanceMonitor.shared.endOperation("get_hint")
+            }
+            
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Choose how to get your hint:")
         }
     }
 }
@@ -461,6 +527,35 @@ private struct CachedGridState {
     
     var isExpired: Bool {
         Date().timeIntervalSince(timestamp) > 300 // 5 minutes
+    }
+}
+
+// MARK: - Ad Integration Views
+
+private struct BannerAdView: UIViewControllerRepresentable {
+    @EnvironmentObject var adManager: AdManager
+    
+    func makeUIViewController(context: Context) -> UIViewController {
+        let viewController = UIViewController()
+        
+        // Add banner ad with performance optimization
+        if let bannerView = adManager.showBannerAd(in: viewController) {
+            viewController.view.addSubview(bannerView)
+            
+            // Auto Layout for banner positioning
+            bannerView.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                bannerView.centerXAnchor.constraint(equalTo: viewController.view.centerXAnchor),
+                bannerView.bottomAnchor.constraint(equalTo: viewController.view.safeAreaLayoutGuide.bottomAnchor),
+                bannerView.widthAnchor.constraint(lessThanOrEqualTo: viewController.view.widthAnchor)
+            ])
+        }
+        
+        return viewController
+    }
+    
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
+        // Update if needed
     }
 }
 
