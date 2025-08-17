@@ -22,6 +22,10 @@ target 'Sudoku Master' do
   # Performance and analytics (optional but recommended)
   pod 'Firebase/Analytics', '~> 10.0'
   pod 'Firebase/Crashlytics', '~> 10.0'
+  
+  # Explicit Promise dependencies to fix module resolution
+  pod 'PromisesObjC', '~> 2.1'
+  pod 'PromisesSwift', '~> 2.1'
 
   target 'Sudoku MasterTests' do
     inherit! :search_paths
@@ -45,9 +49,22 @@ post_install do |installer|
       # iOS deployment target consistency
       config.build_settings.delete 'IPHONEOS_DEPLOYMENT_TARGET'
       
-      # Privacy and security settings
-      config.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'YES'
-      config.build_settings['ENABLE_MODULE_VERIFIER'] = 'YES'
+      # Fix sandbox issues with FBAudienceNetwork and other frameworks
+      config.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
+      config.build_settings['ENABLE_MODULE_VERIFIER'] = 'NO'
+      
+      # Fix file permissions for frameworks
+      config.build_settings['FRAMEWORK_SEARCH_PATHS'] ||= []
+      config.build_settings['FRAMEWORK_SEARCH_PATHS'] << '$(PODS_ROOT)/**'
+      
+      # Fix module map issues for Promises
+      if target.name == 'PromisesSwift'
+        config.build_settings['SWIFT_INCLUDE_PATHS'] ||= []
+        config.build_settings['SWIFT_INCLUDE_PATHS'] << '$(PODS_ROOT)/PromisesObjC'
+        config.build_settings['OTHER_SWIFT_FLAGS'] ||= []
+        config.build_settings['OTHER_SWIFT_FLAGS'] << '-Xcc'
+        config.build_settings['OTHER_SWIFT_FLAGS'] << '-fmodule-map-file=$(PODS_ROOT)/Target Support Files/PromisesObjC/PromisesObjC.modulemap'
+      end
     end
   end
 end

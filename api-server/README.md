@@ -60,19 +60,61 @@ let baseURL = "http://localhost:3000/api"
 ## Deployment Options
 
 ### Option 1: Local Development
-Just run `npm start` and use `http://localhost:3000/api`
+Just run `npm start` and use `http://localhost:8080/api`
 
-### Option 2: Deploy to Railway
+### Option 2: Deploy to Google Cloud Run (Recommended)
+
+#### Prerequisites
+1. Install Google Cloud CLI: `gcloud auth login`
+2. Set your project: `gcloud config set project YOUR_PROJECT_ID`
+3. Enable required APIs:
+   ```bash
+   gcloud services enable run.googleapis.com
+   gcloud services enable cloudbuild.googleapis.com
+   ```
+
+#### Quick Deployment (Direct from source)
+```bash
+./gcloud-deploy.sh YOUR_PROJECT_ID us-central1
+```
+
+#### Advanced Deployment (Cloud Build)
+```bash
+./deploy.sh YOUR_PROJECT_ID us-central1
+```
+
+#### Manual Deployment
+```bash
+# Deploy from source
+gcloud run deploy sudoku-master-api \
+  --source . \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --port 8080 \
+  --memory 512Mi
+
+# Or build and push manually
+docker build -t gcr.io/YOUR_PROJECT_ID/sudoku-master-api .
+docker push gcr.io/YOUR_PROJECT_ID/sudoku-master-api
+gcloud run deploy sudoku-master-api \
+  --image gcr.io/YOUR_PROJECT_ID/sudoku-master-api \
+  --region us-central1 \
+  --allow-unauthenticated
+```
+
+### Option 3: Other Cloud Providers
+
+#### Deploy to Railway
 1. Create account at railway.app
 2. Connect your GitHub repo
 3. Deploy automatically
 
-### Option 3: Deploy to Render
+#### Deploy to Render
 1. Create account at render.com
 2. Create new Web Service
 3. Connect repository
 
-### Option 4: Deploy to Heroku
+#### Deploy to Heroku
 1. Install Heroku CLI
 2. `heroku create sudoku-master-api`
 3. `git push heroku main`
@@ -80,8 +122,15 @@ Just run `npm start` and use `http://localhost:3000/api`
 ## Environment Variables
 
 For production deployment, you might want to set:
-- `PORT` - Server port (defaults to 3000)
+- `PORT` - Server port (defaults to 8080 for Cloud Run)
 - `NODE_ENV` - Environment (development/production)
+
+### Setting Environment Variables in Cloud Run
+```bash
+gcloud run services update sudoku-master-api \
+  --set-env-vars NODE_ENV=production,CUSTOM_VAR=value \
+  --region us-central1
+```
 
 ## Note
 
