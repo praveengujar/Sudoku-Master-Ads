@@ -23,7 +23,9 @@ target 'Sudoku Master' do
   pod 'Firebase/Analytics', '~> 10.0'
   pod 'Firebase/Crashlytics', '~> 10.0'
   
-  # Let Firebase manage Promise dependencies automatically
+  # Force specific Promise versions that are compatible
+  pod 'PromisesObjC', '2.3.1'
+  pod 'PromisesSwift', '2.3.1'
 
   target 'Sudoku MasterTests' do
     inherit! :search_paths
@@ -55,7 +57,17 @@ post_install do |installer|
       config.build_settings['FRAMEWORK_SEARCH_PATHS'] ||= []
       config.build_settings['FRAMEWORK_SEARCH_PATHS'] << '$(PODS_ROOT)/**'
       
-      # Let CocoaPods handle Promise framework dependencies automatically
+      # Fix PromisesSwift module resolution by adding explicit Swift module search paths
+      if target.name == 'PromisesSwift'
+        config.build_settings['SWIFT_INCLUDE_PATHS'] ||= []
+        config.build_settings['SWIFT_INCLUDE_PATHS'] << '$(PODS_CONFIGURATION_BUILD_DIR)/PromisesObjC'
+        config.build_settings['SWIFT_INCLUDE_PATHS'] << '$(PODS_ROOT)/PromisesObjC'
+        
+        # Ensure FBLPromises module is accessible
+        config.build_settings['OTHER_SWIFT_FLAGS'] ||= []
+        config.build_settings['OTHER_SWIFT_FLAGS'] << '-Xcc'
+        config.build_settings['OTHER_SWIFT_FLAGS'] << '-I$(PODS_CONFIGURATION_BUILD_DIR)/PromisesObjC'
+      end
       
     end
   end

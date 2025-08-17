@@ -120,9 +120,9 @@ PODS:
     - nanopb/encode (= 2.30910.0)
   - nanopb/decode (2.30910.0)
   - nanopb/encode (2.30910.0)
-  - PromisesObjC (2.4.0)
-  - PromisesSwift (2.4.0):
-    - PromisesObjC (= 2.4.0)
+  - PromisesObjC (2.3.1)
+  - PromisesSwift (2.3.1):
+    - PromisesObjC (= 2.3.1)
 
 DEPENDENCIES:
   - FBAudienceNetwork (~> 6.15)
@@ -130,6 +130,8 @@ DEPENDENCIES:
   - Firebase/Crashlytics (~> 10.0)
   - Google-Mobile-Ads-SDK (~> 11.0)
   - GoogleUserMessagingPlatform (~> 2.1)
+  - PromisesObjC (= 2.3.1)
+  - PromisesSwift (= 2.3.1)
 
 SPEC REPOS:
   trunk:
@@ -169,9 +171,9 @@ SPEC CHECKSUMS:
   GoogleUserMessagingPlatform: a8b56893477f67212fbc8411c139e61d463349f5
   GoogleUtilities: ea963c370a38a8069cc5f7ba4ca849a60b6d7d15
   nanopb: 438bc412db1928dac798aa6fd75726007be04262
-  PromisesObjC: f5707f49cb48b9636751c5b2e7d227e43fba9f47
-  PromisesSwift: 9d77319bbe72ebf6d872900551f7eeba9bce2851
+  PromisesObjC: c50d2056b5253dadbd6c2bea79b0674bd5a52fa4
+  PromisesSwift: 28dca69a9c40779916ac2d6985a0192a5cb4a265
 
-PODFILE CHECKSUM: 4eca60e03268d052ce395e1f8bc7b934aa20b019
+PODFILE CHECKSUM: 493f48115db514a8254c334d50cc95a7143cf09d
 
 COCOAPODS: 1.16.2
