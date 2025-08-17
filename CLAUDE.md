@@ -164,3 +164,110 @@ TikTok Audience Network integration is implemented but temporarily disabled due 
 2. Re-enabling TikTok pod in Podfile
 3. Restoring TikTok delegate methods
 4. Configuring TikTok placement IDs
+
+## Module Resolution & Build Fixes (2025-08-17)
+
+### CocoaPods Module Import Issues Resolution
+**Problem**: Multiple module import errors preventing successful builds
+- `No such module 'GoogleMobileAds'`
+- `No such module 'FBLPromises'` 
+- Sandbox permission errors with FBAudienceNetwork framework
+
+**Root Causes Identified**:
+1. User script sandboxing was blocking framework file operations
+2. PromisesSwift/PromisesObjC module map misconfiguration
+3. Missing explicit promise dependencies in Podfile
+4. Incorrect Xcode project file being used (.xcodeproj vs .xcworkspace)
+
+**Solutions Implemented**:
+
+#### 1. Sandbox Restrictions Fix
+**Location**: `Podfile` post_install hook (lines 52-58)
+```ruby
+# Fix sandbox issues with FBAudienceNetwork and other frameworks
+config.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
+config.build_settings['ENABLE_MODULE_VERIFIER'] = 'NO'
+```
+**Impact**: Resolved rsync permission denied errors for framework operations
+
+#### 2. Promises Module Resolution
+**Location**: `Podfile` explicit dependencies (lines 27-28) and post_install configuration (lines 61-67)
+```ruby
+# Explicit Promise dependencies to fix module resolution
+pod 'PromisesObjC', '~> 2.1'
+pod 'PromisesSwift', '~> 2.1'
+```
+**Impact**: Fixed `FBLPromises` module import errors in PromisesSwift
+
+#### 3. Framework Search Paths
+**Location**: `Podfile` post_install hook (lines 57-58)
+```ruby
+config.build_settings['FRAMEWORK_SEARCH_PATHS'] ||= []
+config.build_settings['FRAMEWORK_SEARCH_PATHS'] << '$(PODS_ROOT)/**'
+```
+**Impact**: Ensured all frameworks are discoverable by the build system
+
+### Automated Fix Scripts
+**Created**: `fix-sandbox.sh` and `build-fix.sh` for comprehensive build issue resolution
+**Features**:
+- Complete pod deintegration and reinstallation
+- Derived data cleaning
+- Framework permission fixes
+- Module verification
+- Automated troubleshooting guidance
+
+### Critical Build Process
+**ALWAYS Use Workspace**: `Sudoku Master.xcworkspace` (NOT `Sudoku Master.xcodeproj`)
+**Required Steps**:
+1. Run `./build-fix.sh` if module issues occur
+2. Open workspace file in Xcode
+3. Clean Build Folder (Shift+Cmd+K)
+4. Build project (Cmd+B)
+
+### Key Lessons Learned
+1. **Xcode Sandboxing**: Modern Xcode versions have stricter sandboxing that can interfere with CocoaPods framework operations
+2. **Promise Dependencies**: Some Firebase/Google SDKs require explicit PromisesObjC/PromisesSwift dependencies
+3. **Module Maps**: Framework module resolution can fail if module maps aren't properly configured
+4. **Workspace Requirement**: CocoaPods integration requires using .xcworkspace, not .xcodeproj
+
+## Cloud Run Migration Implementation (2025-08-17)
+
+### App Engine to Cloud Run Migration
+**Problem**: Need to migrate backend API from App Engine Flex to Cloud Run for better performance and cost efficiency
+**Solution**: Complete containerization and Cloud Run deployment configuration
+
+### Migration Benefits
+- **Faster cold starts**: Seconds vs minutes compared to App Engine Flex
+- **Pay-per-request**: More cost-effective for variable traffic
+- **Better scaling**: 0 to 1000+ instances with fine-grained control
+- **Container-native**: Modern deployment approach
+
+### Implementation Files Created
+1. **`api-server/Dockerfile`**: Optimized Node.js container with security best practices
+2. **`api-server/cloudbuild.yaml`**: Google Cloud Build configuration for CI/CD
+3. **`api-server/service.yaml`**: Knative service definition for advanced configurations
+4. **`api-server/deploy.sh`**: Automated deployment script using Cloud Build
+5. **`api-server/gcloud-deploy.sh`**: Simple direct deployment script
+
+### Key Configuration Changes
+- **Port Change**: Updated from 3000 to 8080 (Cloud Run standard)
+- **Health Checks**: Added startup and liveness probes on `/api` endpoint
+- **Resource Limits**: 512Mi memory, 1 CPU, 100 max instances
+- **Security**: Non-root user, minimal attack surface
+
+### Deployment Options
+```bash
+# Quick deployment (recommended for development)
+./gcloud-deploy.sh YOUR_PROJECT_ID us-central1
+
+# Advanced deployment with Cloud Build (recommended for production)
+./deploy.sh YOUR_PROJECT_ID us-central1
+```
+
+### Environment Variables
+Cloud Run supports environment variables for configuration:
+```bash
+gcloud run services update sudoku-master-api \
+  --set-env-vars NODE_ENV=production,CUSTOM_VAR=value \
+  --region us-central1
+```

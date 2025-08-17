@@ -23,9 +23,7 @@ target 'Sudoku Master' do
   pod 'Firebase/Analytics', '~> 10.0'
   pod 'Firebase/Crashlytics', '~> 10.0'
   
-  # Explicit Promise dependencies to fix module resolution
-  pod 'PromisesObjC', '~> 2.1'
-  pod 'PromisesSwift', '~> 2.1'
+  # Let Firebase manage Promise dependencies automatically
 
   target 'Sudoku MasterTests' do
     inherit! :search_paths
@@ -57,14 +55,8 @@ post_install do |installer|
       config.build_settings['FRAMEWORK_SEARCH_PATHS'] ||= []
       config.build_settings['FRAMEWORK_SEARCH_PATHS'] << '$(PODS_ROOT)/**'
       
-      # Fix module map issues for Promises
-      if target.name == 'PromisesSwift'
-        config.build_settings['SWIFT_INCLUDE_PATHS'] ||= []
-        config.build_settings['SWIFT_INCLUDE_PATHS'] << '$(PODS_ROOT)/PromisesObjC'
-        config.build_settings['OTHER_SWIFT_FLAGS'] ||= []
-        config.build_settings['OTHER_SWIFT_FLAGS'] << '-Xcc'
-        config.build_settings['OTHER_SWIFT_FLAGS'] << '-fmodule-map-file=$(PODS_ROOT)/Target Support Files/PromisesObjC/PromisesObjC.modulemap'
-      end
+      # Let CocoaPods handle Promise framework dependencies automatically
+      
     end
   end
 end
