@@ -7,16 +7,9 @@ target 'Sudoku Master' do
 
   # Pods for Sudoku Master
   
-  # Meta Audience Network (Facebook Ads) - Primary ad network
+  # Meta Audience Network (Facebook Ads) - ONLY ad network
   pod 'FBAudienceNetwork', '~> 6.15'
   
-  # Performance and analytics (optional but recommended)
-  pod 'Firebase/Analytics', '~> 10.0'
-  pod 'Firebase/Crashlytics', '~> 10.0'
-  
-  # Promise dependencies for Firebase (if needed for analytics)
-  pod 'PromisesObjC', '2.3.1'
-  pod 'PromisesSwift', '2.3.1'
 
   target 'Sudoku MasterTests' do
     inherit! :search_paths
@@ -44,21 +37,15 @@ post_install do |installer|
       config.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
       config.build_settings['ENABLE_MODULE_VERIFIER'] = 'NO'
       
+      # Additional sandbox and permission fixes
+      config.build_settings['ENABLE_HARDENED_RUNTIME'] = 'NO'
+      config.build_settings['OTHER_LDFLAGS'] ||= []
+      config.build_settings['OTHER_LDFLAGS'] << '-ObjC'
+      
       # Fix file permissions for frameworks
       config.build_settings['FRAMEWORK_SEARCH_PATHS'] ||= []
       config.build_settings['FRAMEWORK_SEARCH_PATHS'] << '$(PODS_ROOT)/**'
       
-      # Fix PromisesSwift module resolution by adding explicit Swift module search paths
-      if target.name == 'PromisesSwift'
-        config.build_settings['SWIFT_INCLUDE_PATHS'] ||= []
-        config.build_settings['SWIFT_INCLUDE_PATHS'] << '$(PODS_CONFIGURATION_BUILD_DIR)/PromisesObjC'
-        config.build_settings['SWIFT_INCLUDE_PATHS'] << '$(PODS_ROOT)/PromisesObjC'
-        
-        # Ensure FBLPromises module is accessible
-        config.build_settings['OTHER_SWIFT_FLAGS'] ||= []
-        config.build_settings['OTHER_SWIFT_FLAGS'] << '-Xcc'
-        config.build_settings['OTHER_SWIFT_FLAGS'] << '-I$(PODS_CONFIGURATION_BUILD_DIR)/PromisesObjC'
-      end
       
     end
   end

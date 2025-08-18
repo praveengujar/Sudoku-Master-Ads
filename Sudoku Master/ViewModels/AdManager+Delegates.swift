@@ -1,84 +1,31 @@
 import Foundation
-import GoogleMobileAds
 import FBAudienceNetwork
-// import AdsGlobal // Temporarily disabled until TikTok setup is complete
-
-// MARK: - Google AdMob Delegates
-
-extension AdManager: GADBannerViewDelegate {
-    func bannerViewDidReceiveAd(_ bannerView: GADBannerView) {
-        print("✅ AdMob Banner loaded successfully")
-        recordAdLoad(.bannerAdMob)
-    }
-    
-    func bannerView(_ bannerView: GADBannerView, didFailToReceiveAdWithError error: Error) {
-        print("❌ AdMob Banner failed to load: \(error.localizedDescription)")
-        recordAdFailure(.bannerAdMob, error: error)
-    }
-    
-    func bannerViewDidRecordImpression(_ bannerView: GADBannerView) {
-        print("📊 AdMob Banner impression recorded")
-        recordAdShow(.bannerAdMob)
-    }
-    
-    func bannerViewWillPresentScreen(_ bannerView: GADBannerView) {
-        print("📱 AdMob Banner will present screen")
-    }
-    
-    func bannerViewWillDismissScreen(_ bannerView: GADBannerView) {
-        print("📱 AdMob Banner will dismiss screen")
-    }
-    
-    func bannerViewDidDismissScreen(_ bannerView: GADBannerView) {
-        print("📱 AdMob Banner did dismiss screen")
-    }
-}
-
-extension AdManager: GADFullScreenContentDelegate {
-    func adWillPresentFullScreenContent(_ ad: GADFullScreenPresentingAd) {
-        print("📱 AdMob Fullscreen ad will present")
-        PerformanceMonitor.shared.startOperation("ad_display")
-    }
-    
-    func adDidDismissFullScreenContent(_ ad: GADFullScreenPresentingAd) {
-        print("📱 AdMob Fullscreen ad dismissed")
-        PerformanceMonitor.shared.endOperation("ad_display")
-        
-        // Preload the next ad
-        if ad is GADInterstitialAd {
-            loadAdMobInterstitial()
-        } else if ad is GADRewardedAd {
-            loadAdMobRewarded()
-        }
-    }
-    
-    func ad(_ ad: GADFullScreenPresentingAd, didFailToPresentFullScreenContentWithError error: Error) {
-        print("❌ AdMob Fullscreen ad failed to present: \(error.localizedDescription)")
-        
-        if ad is GADInterstitialAd {
-            recordAdFailure(.interstitialAdMob, error: error)
-        } else if ad is GADRewardedAd {
-            recordAdFailure(.rewardedAdMob, error: error)
-        }
-    }
-}
 
 // MARK: - Meta Audience Network Delegates
 
+// MARK: - Banner Ad Delegate
 extension AdManager: FBAdViewDelegate {
     func adViewDidLoad(_ adView: FBAdView) {
         print("✅ Meta Banner loaded successfully")
-        recordAdLoad(.bannerMeta)
+        recordAdLoad(AdType.bannerMeta)
+        
+        DispatchQueue.main.async {
+            self.adLoadingState = .loaded
+        }
     }
     
     func adView(_ adView: FBAdView, didFailWithError error: Error) {
         print("❌ Meta Banner failed to load: \(error.localizedDescription)")
         recordAdFailure(.bannerMeta, error: error)
+        
+        DispatchQueue.main.async {
+            self.adLoadingState = .failed(error)
+        }
     }
     
     func adViewDidClick(_ adView: FBAdView) {
         print("🖱️ Meta Banner clicked")
-        recordAdShow(.bannerMeta)
+        recordAdShow(AdType.bannerMeta)
     }
     
     func adViewDidFinishHandlingClick(_ adView: FBAdView) {
@@ -90,16 +37,25 @@ extension AdManager: FBAdViewDelegate {
     }
 }
 
+// MARK: - Interstitial Ad Delegate
 extension AdManager: FBInterstitialAdDelegate {
     func interstitialAdDidLoad(_ interstitialAd: FBInterstitialAd) {
         print("✅ Meta Interstitial loaded successfully")
-        cacheAd(.interstitialMeta)
-        recordAdLoad(.interstitialMeta)
+        cacheAd(AdType.interstitialMeta)
+        recordAdLoad(AdType.interstitialMeta)
+        
+        DispatchQueue.main.async {
+            self.adLoadingState = .loaded
+        }
     }
     
     func interstitialAd(_ interstitialAd: FBInterstitialAd, didFailWithError error: Error) {
         print("❌ Meta Interstitial failed to load: \(error.localizedDescription)")
         recordAdFailure(.interstitialMeta, error: error)
+        
+        DispatchQueue.main.async {
+            self.adLoadingState = .failed(error)
+        }
     }
     
     func interstitialAdDidClick(_ interstitialAd: FBInterstitialAd) {
@@ -108,8 +64,13 @@ extension AdManager: FBInterstitialAdDelegate {
     
     func interstitialAdDidClose(_ interstitialAd: FBInterstitialAd) {
         print("📱 Meta Interstitial closed")
-        // Preload next interstitial
-        loadMetaInterstitial()
+        
+        // Preload next interstitial ad
+        Task { [weak self] in
+            await MainActor.run {
+                self?.loadMetaInterstitial()
+            }
+        }
     }
     
     func interstitialAdWillClose(_ interstitialAd: FBInterstitialAd) {
@@ -121,16 +82,31 @@ extension AdManager: FBInterstitialAdDelegate {
     }
 }
 
+// MARK: - Rewarded Video Ad Delegate
 extension AdManager: FBRewardedVideoAdDelegate {
     func rewardedVideoAdDidLoad(_ rewardedVideoAd: FBRewardedVideoAd) {
         print("✅ Meta Rewarded loaded successfully")
-        cacheAd(.rewardedMeta)
-        recordAdLoad(.rewardedMeta)
+        cacheAd(AdType.rewardedMeta)
+        recordAdLoad(AdType.rewardedMeta)
+        
+        DispatchQueue.main.async {
+            self.adLoadingState = .loaded
+        }
     }
     
     func rewardedVideoAd(_ rewardedVideoAd: FBRewardedVideoAd, didFailWithError error: Error) {
         print("❌ Meta Rewarded failed to load: \(error.localizedDescription)")
         recordAdFailure(.rewardedMeta, error: error)
+        
+        DispatchQueue.main.async {
+            self.adLoadingState = .failed(error)
+        }
+        
+        // Notify completion handler of failure
+        if let completion = rewardCompletion {
+            completion(false, 0)
+            rewardCompletion = nil
+        }
     }
     
     func rewardedVideoAdDidClick(_ rewardedVideoAd: FBRewardedVideoAd) {
@@ -139,8 +115,13 @@ extension AdManager: FBRewardedVideoAdDelegate {
     
     func rewardedVideoAdDidClose(_ rewardedVideoAd: FBRewardedVideoAd) {
         print("📱 Meta Rewarded closed")
+        
         // Preload next rewarded ad
-        loadMetaRewarded()
+        Task { [weak self] in
+            await MainActor.run {
+                self?.loadMetaRewarded()
+            }
+        }
     }
     
     func rewardedVideoAdWillClose(_ rewardedVideoAd: FBRewardedVideoAd) {
@@ -151,23 +132,24 @@ extension AdManager: FBRewardedVideoAdDelegate {
         print("🎁 Meta Rewarded completed - User earned reward!")
         recordAdReward(.rewardedMeta, amount: 1)
         
-        // Notify game logic about reward
-        NotificationCenter.default.post(name: .adRewardEarned, object: nil, userInfo: ["amount": 1, "type": "meta"])
+        // Notify completion handler of success
+        if let completion = rewardCompletion {
+            completion(true, 1)
+            rewardCompletion = nil
+        }
+        
+        // Post notification for game logic
+        NotificationCenter.default.post(
+            name: .adRewardEarned,
+            object: nil,
+            userInfo: ["amount": 1, "type": "meta"]
+        )
     }
     
     func rewardedVideoAdWillLogImpression(_ rewardedVideoAd: FBRewardedVideoAd) {
         print("📊 Meta Rewarded will log impression")
     }
 }
-
-// MARK: - TikTok Audience Network Delegates
-// Note: TikTok delegates temporarily disabled until full configuration
-
-/*
-extension AdManager: BURewardedVideoAdDelegate {
-    // TikTok delegate methods will be enabled when TikTok integration is fully configured
-}
-*/
 
 // MARK: - Notification Extensions
 

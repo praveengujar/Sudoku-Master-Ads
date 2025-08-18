@@ -1,8 +1,6 @@
 import UIKit
 import SwiftUI
-import GoogleMobileAds
 import AppTrackingTransparency
-import GoogleUserMessagingPlatform
 
 class AppDelegate: NSObject, UIApplicationDelegate {
     var authManager: AuthManager!
@@ -31,9 +29,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Update offline status when network status changes
         self.updateOfflineStatusBasedOnNetwork()
         
-        // Initialize ads asynchronously to avoid blocking app launch
+        // Initialize Meta Audience Network asynchronously to avoid blocking app launch
         Task {
-            await initializeAdSystems()
+            await initializeMetaAds()
         }
         
         return true
@@ -73,50 +71,17 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         sudokuStore.setOfflineMode(isOffline: true)
     }
     
-    // MARK: - Ad System Initialization
+    // MARK: - Meta Ad System Initialization
     
-    private func initializeAdSystems() async {
+    private func initializeMetaAds() async {
         // Performance monitoring for ad initialization
-        PerformanceMonitor.shared.startOperation("ad_initialization")
+        PerformanceMonitor.shared.startOperation("meta_ad_initialization")
         
-        // Initialize Google Mobile Ads SDK first (most commonly used)
-        await initializeGoogleMobileAds()
+        // Initialize Meta Audience Network
+        await adManager.initializeMetaAudienceNetwork()
         
-        // Wait a brief moment for optimal performance
-        try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-        
-        // Initialize other ad networks
-        await adManager.initializeAdSDKs()
-        
-        PerformanceMonitor.shared.endOperation("ad_initialization")
-        print("✅ All ad systems initialized successfully")
-    }
-    
-    private func initializeGoogleMobileAds() async {
-        await MainActor.run {
-            // Start Google Mobile Ads SDK
-            GADMobileAds.sharedInstance().start { initializationStatus in
-                print("✅ Google Mobile Ads SDK initialized")
-                
-                // Log initialization status for debugging
-                let adapterStatuses = initializationStatus.adapterStatusesByClassName
-                for (adapter, status) in adapterStatuses {
-                    let state = status.state == .ready ? "Ready" : "Not Ready"
-                    print("📊 Adapter \(adapter): \(state) - \(status.description)")
-                }
-                
-                PerformanceMonitor.shared.recordCustomMetric(name: "google_ads_init_success", value: 1)
-            }
-            
-            // Configure request configuration for optimal performance
-            let requestConfiguration = GADMobileAds.sharedInstance().requestConfiguration
-            requestConfiguration.maxAdContentRating = .general
-            
-            // Set test device IDs for development (remove for production)
-            #if DEBUG
-            requestConfiguration.testDeviceIdentifiers = [GADSimulatorID]
-            #endif
-        }
+        PerformanceMonitor.shared.endOperation("meta_ad_initialization")
+        print("✅ Meta Audience Network initialized successfully")
     }
     
     // MARK: - App Lifecycle Methods for Ads
@@ -124,7 +89,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     func applicationDidBecomeActive(_ application: UIApplication) {
         // Resume ad loading when app becomes active
         Task {
-            await adManager.initializeAdSDKs()
+            await adManager.initializeMetaAudienceNetwork()
         }
     }
     
@@ -142,7 +107,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Prepare ads for foreground use
         print("📱 App will enter foreground - preparing ads")
         Task {
-            await adManager.initializeAdSDKs()
+            await adManager.initializeMetaAudienceNetwork()
         }
     }
 }

@@ -1,13 +1,13 @@
 # Sudoku Master iOS App with Cloud Run Backend
 
-A complete SwiftUI iOS Sudoku game with comprehensive ad monetization, offline mode support, and a containerized Node.js backend deployable to Google Cloud Run.
+A complete SwiftUI iOS Sudoku game with streamlined Meta Audience Network ad monetization, offline mode support, and a containerized Node.js backend deployable to Google Cloud Run.
 
 ## 📱 Project Overview
 
 ### iOS App Features
 - **Complete Sudoku Game**: Multiple difficulty levels with auto-generation and solving
 - **Dual Mode Operation**: Online API integration with offline fallback
-- **Comprehensive Ad Integration**: Google AdMob + Meta Audience Network with privacy compliance
+- **Streamlined Ad Integration**: Meta Audience Network ONLY with privacy compliance (simplified build)
 - **User Authentication**: Login/registration with progress tracking
 - **Performance Optimized**: Async operations, intelligent caching, real-time monitoring
 
@@ -104,19 +104,22 @@ api-server/
 
 ### Common Build Issues
 
-#### Module Import Errors
-If you encounter `No such module 'GoogleMobileAds'` or similar errors:
+#### Module Import or Sandbox Errors
+If you encounter module import errors or sandbox permission issues:
 
 ```bash
-# Run the comprehensive build fix
-./build-fix.sh
+# Clean rebuild for Meta-only integration
+rm -rf "Sudoku Master.xcworkspace" Pods/ Podfile.lock
+rm -rf ~/Library/Developer/Xcode/DerivedData/Sudoku_Master-*
+pod install --repo-update
+open "Sudoku Master.xcworkspace"
 ```
 
-This script resolves:
-- ✅ CocoaPods module resolution issues
-- ✅ Sandbox permission errors
-- ✅ Framework search path problems
-- ✅ PromisesObjC/PromisesSwift dependencies
+This resolves:
+- ✅ Meta Audience Network module resolution
+- ✅ Sandbox permission errors (`ENABLE_USER_SCRIPT_SANDBOXING = NO`)
+- ✅ Workspace corruption issues
+- ✅ Simplified dependency conflicts
 
 #### Manual Fix Steps
 1. **Ensure Workspace Usage**: Always open `Sudoku Master.xcworkspace`
@@ -130,27 +133,35 @@ This script resolves:
 
 ### Key Build Requirements
 - **CocoaPods Integration**: Must use `.xcworkspace` file
-- **Sandbox Settings**: Disabled for framework compatibility
-- **Module Dependencies**: Explicit PromisesObjC/PromisesSwift declarations
-- **Framework Permissions**: Automated permission fixes included
+- **Sandbox Settings**: Disabled for framework compatibility (`ENABLE_USER_SCRIPT_SANDBOXING = NO`)
+- **Simplified Dependencies**: Only Meta Audience Network SDK (6.15+)
+- **Access Levels**: Internal methods for delegate extensions
 
-## 📊 Ad Monetization
+## 📊 Ad Monetization - Meta Audience Network Only
 
-### Integrated Ad Networks
-- **Google AdMob**: Primary ad network with full feature support
-- **Meta Audience Network**: Fallback with seamless integration  
-- **Privacy Compliance**: GDPR/CCPA consent + App Tracking Transparency
+### Streamlined Integration (2025-08-18)
+- **Meta Audience Network**: Single ad network for simplified maintenance
+- **Complete Cleanup**: All Google AdMob, Firebase, and TikTok dependencies REMOVED
+- **Privacy Compliance**: App Tracking Transparency + comprehensive privacy manifests
+- **Production Ready**: Clean build with minimal dependencies
 
 ### Ad Integration Points
-1. **Banner Ads**: Bottom of main game screen
-2. **Interstitial Ads**: After puzzle completion (frequency-capped)
-3. **Rewarded Ads**: Hint system with user choice
+1. **Banner Ads**: Bottom of main game screen using `FBAdView`
+2. **Interstitial Ads**: After puzzle completion (frequency-capped) using `FBInterstitialAd`
+3. **Rewarded Video Ads**: Hint system integration using `FBRewardedVideoAd`
 
 ### Performance Features
-- **Async Loading**: Background ad operations
-- **Intelligent Caching**: 5-minute TTL with preloading
-- **Network Resilience**: Automatic fallback cascade
-- **Memory Optimization**: Weak references and cache management
+- **Async Loading**: Background ad operations with MainActor integration
+- **Intelligent Caching**: 5-minute TTL with automatic preloading
+- **Memory Optimization**: Weak references and proper cleanup
+- **Frequency Capping**: 30-second minimum between ads for optimal UX
+
+### Dependencies Summary
+```ruby
+# Podfile - Clean and Simple
+pod 'FBAudienceNetwork', '~> 6.15'
+```
+**Result**: 1 dependency, 1 total pod installed (compared to 16+ with multi-network setup)
 
 ## ☁️ Cloud Run Backend
 
@@ -233,20 +244,27 @@ npm test  # If test scripts are added
 
 ## 📝 Recent Implementation Learnings
 
-### Module Resolution Fixes (2025-08-17)
-- **Sandbox Issues**: Resolved framework permission errors
-- **Promise Dependencies**: Fixed FBLPromises module resolution
-- **Build Automation**: Created comprehensive fix scripts
+### Meta-Only Integration Cleanup (2025-08-18)
+- **Complete Simplification**: Removed ALL Google AdMob, Firebase, and TikTok dependencies
+- **Dependency Reduction**: From 16+ pods to 1 single pod (Meta Audience Network)
+- **Build Simplification**: Eliminated module conflicts and complex fallback logic
+- **Sandbox Resolution**: Fixed Xcode 15+ sandboxing issues with `ENABLE_USER_SCRIPT_SANDBOXING = NO`
+
+### Critical Fixes Applied (2025-08-18)
+- **Access Level Issues**: Changed private methods to internal for delegate extensions
+- **Environment Object Scope**: Added `@EnvironmentObject var adManager: AdManager` to all required view structs
+- **Meta SDK API Updates**: Updated deprecated `.FBAdLogLevelLog` to `.log` for SDK 6.20.1
+- **Info.plist Conflicts**: Switched to auto-generated Info.plist to eliminate duplicate build errors
 
 ### Cloud Run Migration (2025-08-17)  
 - **Complete Containerization**: Optimized Docker configuration
 - **Deployment Automation**: Multiple deployment strategies
 - **Performance Optimization**: Resource limits and health checks
 
-### Ad Integration (2025-08-16)
-- **Multi-Network Setup**: AdMob + Meta with intelligent fallbacks
-- **Privacy Compliance**: Full GDPR/CCPA + ATT implementation
-- **Performance Optimization**: Async operations with caching
+### Build Quality Improvements
+- **Workspace Corruption Recovery**: Comprehensive rebuild procedures for corrupted workspaces
+- **Troubleshooting Automation**: Step-by-step resolution for common build issues
+- **Documentation Enhancement**: Complete integration learnings captured in CLAUDE.md
 
 ## 🤝 Contributing
 
@@ -270,10 +288,11 @@ This project is for educational and demonstration purposes. Please ensure compli
 ## 🆘 Support
 
 ### Common Issues
-1. **Module Import Errors**: Run `./build-fix.sh`
-2. **Ad Loading Failures**: Check network connectivity and ad unit IDs
-3. **Cloud Run Deployment**: Verify project permissions and API enablement
-4. **Build Failures**: Ensure workspace file usage and clean derived data
+1. **Module Import Errors**: Run clean rebuild commands (see Build & Troubleshooting section)
+2. **Sandbox Permission Errors**: Verify `ENABLE_USER_SCRIPT_SANDBOXING = NO` in both Podfile and project
+3. **Workspace Won't Open**: Delete workspace and rebuild: `rm -rf "Sudoku Master.xcworkspace" && pod install`
+4. **AdManager Scope Errors**: Ensure `@EnvironmentObject var adManager: AdManager` in all view structs
+5. **Meta Ad Loading**: Check network connectivity and Meta placement IDs
 
 ### Documentation
 - **iOS Development**: See `CLAUDE.md` for detailed implementation notes

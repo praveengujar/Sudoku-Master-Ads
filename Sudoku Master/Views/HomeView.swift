@@ -6,7 +6,7 @@ struct HomeView: View {
     @EnvironmentObject var authManager: AuthManager
     @EnvironmentObject var networkMonitor: NetworkMonitor
     @EnvironmentObject var offlineStorage: OfflineStorage
-    @StateObject private var adManager = AdManager.shared
+    @EnvironmentObject var adManager: AdManager
     @State private var showProfileSheet = false
     
     // Performance optimizations
@@ -131,6 +131,7 @@ private struct MainContentView: View {
     @EnvironmentObject var authManager: AuthManager
     @EnvironmentObject var networkMonitor: NetworkMonitor
     @EnvironmentObject var offlineStorage: OfflineStorage
+    @EnvironmentObject var adManager: AdManager
     @Binding var showProfileSheet: Bool
     
     var body: some View {
