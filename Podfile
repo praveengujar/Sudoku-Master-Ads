@@ -7,23 +7,14 @@ target 'Sudoku Master' do
 
   # Pods for Sudoku Master
   
-  # Google AdMob SDK
-  pod 'Google-Mobile-Ads-SDK', '~> 11.0'
-  
-  # Google User Messaging Platform for GDPR/CCPA compliance
-  pod 'GoogleUserMessagingPlatform', '~> 2.1'
-  
-  # Meta Audience Network (Facebook Ads)
+  # Meta Audience Network (Facebook Ads) - Primary ad network
   pod 'FBAudienceNetwork', '~> 6.15'
-  
-  # TikTok Audience Network (temporarily disabled)
-  # pod 'Ads-Global', '~> 5.7'
   
   # Performance and analytics (optional but recommended)
   pod 'Firebase/Analytics', '~> 10.0'
   pod 'Firebase/Crashlytics', '~> 10.0'
   
-  # Force specific Promise versions that are compatible
+  # Promise dependencies for Firebase (if needed for analytics)
   pod 'PromisesObjC', '2.3.1'
   pod 'PromisesSwift', '2.3.1'
 
