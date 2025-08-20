@@ -10,15 +10,10 @@ struct SudokuBoardView: View {
     }
     
     var body: some View {
-        VStack(spacing: 0) {
-            if sudokuStore.isLoading {
-                LoadingView()
-            } else {
-                GameBoardContent(colors: colors)
-                    .environmentObject(sudokuStore)
-            }
-            
-            TimerDisplayView()
+        if sudokuStore.isLoading {
+            LoadingView()
+        } else {
+            GameBoardContent(colors: colors)
                 .environmentObject(sudokuStore)
         }
     }
@@ -68,30 +63,10 @@ private struct GameBoardContent: View {
             }
         }
         .aspectRatio(1, contentMode: .fit)
-        .padding()
+        .padding(8)  // Reduced from default padding
         .background(colors.backgroundColor)
         .cornerRadius(8)
         .shadow(radius: 3)
-    }
-}
-
-private struct TimerDisplayView: View {
-    @EnvironmentObject var sudokuStore: SudokuStore
-    
-    var body: some View {
-        HStack {
-            Image(systemName: "clock")
-            Text(formatTime(sudokuStore.timeSpentSeconds))
-                .font(.headline)
-                .monospacedDigit()
-        }
-        .padding(.top, 8)
-    }
-    
-    private func formatTime(_ seconds: Int) -> String {
-        let minutes = seconds / 60
-        let remainingSeconds = seconds % 60
-        return String(format: "%02d:%02d", minutes, remainingSeconds)
     }
 }
 

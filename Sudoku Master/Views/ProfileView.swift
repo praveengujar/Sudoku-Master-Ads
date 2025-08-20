@@ -423,15 +423,77 @@ struct SettingsTabContent: View {
                 .cornerRadius(10)
                 .shadow(color: Color.black.opacity(0.1), radius: 5)
                 
-                // Account settings
+                // Security settings
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Account")
+                    Text("Security")
                         .font(.headline)
+                    
+                    // Face ID/Touch ID toggle
+                    if authManager.isBiometricAvailable {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Image(systemName: authManager.biometricType.iconName)
+                                    .foregroundColor(.blue)
+                                    .frame(width: 25)
+                                
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Use \(authManager.biometricDisplayName)")
+                                        .fontWeight(.medium)
+                                    Text("Secure your account with biometric authentication")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                
+                                Spacer()
+                                
+                                Toggle("", isOn: Binding(
+                                    get: { authManager.biometricEnabled },
+                                    set: { newValue in
+                                        Task {
+                                            await authManager.toggleBiometric(newValue)
+                                        }
+                                    }
+                                ))
+                            }
+                            .padding()
+                            .background(Color(.systemBackground))
+                            .cornerRadius(10)
+                            
+                            if authManager.biometricEnabled {
+                                HStack {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(.green)
+                                    Text("\(authManager.biometricDisplayName) is enabled for secure login")
+                                        .font(.caption)
+                                        .foregroundColor(.green)
+                                }
+                                .padding(.horizontal)
+                            }
+                        }
+                    } else {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundColor(.orange)
+                            Text("Biometric authentication is not available on this device")
+                                .font(.caption)
+                                .foregroundColor(.orange)
+                        }
+                        .padding()
+                        .background(Color.orange.opacity(0.1))
+                        .cornerRadius(10)
+                    }
+                    
+                    Divider()
+                        .padding(.vertical, 5)
                     
                     Button(action: {
                         // Change password
                     }) {
                         HStack {
+                            Image(systemName: "key")
+                                .foregroundColor(.blue)
+                                .frame(width: 25)
+                            
                             Text("Change Password")
                                 .foregroundColor(.primary)
                             

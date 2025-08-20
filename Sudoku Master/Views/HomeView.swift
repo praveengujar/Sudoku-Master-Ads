@@ -25,7 +25,7 @@ struct HomeView: View {
                 .environmentObject(authManager)
                 .environmentObject(networkMonitor)
                 .environmentObject(offlineStorage)
-            .navigationBarTitle("Sudoku Master", displayMode: .inline)
+            .navigationBarHidden(true)
             .alert(isPresented: $sudokuStore.showVictoryAlert) {
                 Alert(
                     title: Text("🎉 Congratulations!"),
@@ -129,24 +129,27 @@ private struct MainContentView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Header with user info and offline indicator
+            // Header with user info, title, and timer - reduced padding
             OptimizedHeaderView(showProfileSheet: $showProfileSheet)
                 .environmentObject(authManager)
-                .environmentObject(offlineStorage)
+                .environmentObject(sudokuStore)
             
-            // Main game board
+            // Main game board - moved up by 2 lines
             SudokuBoardView()
                 .environmentObject(sudokuStore)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.top, -32)     // Move up by reducing top space (2 lines)
+                .padding(.bottom, -20)  // Move up by reducing bottom space
             
-            // Game controls
-            GameControlsView()
+            // Compact controls at bottom - reduced spacing
+            CompactControlsView()
                 .environmentObject(sudokuStore)
                 .environmentObject(adManager)
             
-            // Banner ad at bottom
+            // Banner ad at bottom - increased height for more space
             BannerAdView()
                 .environmentObject(adManager)
-                .frame(height: 60)
+                .frame(height: 90)  // Increased from 72 to 90 for more ad space
                 .padding(.horizontal)
         }
     }
@@ -154,23 +157,39 @@ private struct MainContentView: View {
 
 private struct OptimizedHeaderView: View {
     @EnvironmentObject var authManager: AuthManager
-    @EnvironmentObject var offlineStorage: OfflineStorage
+    @EnvironmentObject var sudokuStore: SudokuStore
     @Binding var showProfileSheet: Bool
     
     var body: some View {
-        HStack {
-            // User profile button
-            ProfileButton(showProfileSheet: $showProfileSheet)
-                .environmentObject(authManager)
-            
+        VStack(spacing: 4) {
+            // Empty space line
             Spacer()
+                .frame(height: 8)
             
-            // Offline mode indicator
-            if offlineStorage.isOfflineMode {
-                OfflineModeIndicator()
+            // Sudoku Master title - moved down one line
+            Text("Sudoku Master")
+                .font(.largeTitle)
+                .fontWeight(.bold)
+            
+            // Second empty space line
+            Spacer()
+                .frame(height: 8)
+            
+            // Guest icon and timer on fourth line with matching fonts
+            HStack {
+                // User profile button
+                ProfileButton(showProfileSheet: $showProfileSheet)
+                    .environmentObject(authManager)
+                
+                Spacer()
+                
+                // Timer with matching font
+                TimerDisplayView()
+                    .environmentObject(sudokuStore)
             }
         }
-        .padding()
+        .padding(.horizontal)
+        .padding(.vertical, 6)  // Further reduced padding
     }
 }
 
@@ -184,12 +203,14 @@ private struct ProfileButton: View {
         }) {
             HStack {
                 Image(systemName: "person.circle")
+                    .font(.subheadline)
                 Text(authManager.currentUser?.username ?? "Guest")
+                    .font(.subheadline)
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.vertical, 6)  // Reduced padding
             .background(Color.blue.opacity(0.1))
-            .cornerRadius(20)
+            .cornerRadius(15)  // Slightly smaller corner radius
         }
         .buttonStyle(.borderless)
     }
@@ -209,49 +230,87 @@ private struct OfflineModeIndicator: View {
     }
 }
 
-private struct GameControlsView: View {
+private struct CompactControlsView: View {
     @EnvironmentObject var sudokuStore: SudokuStore
+    @EnvironmentObject var adManager: AdManager
+    @State private var showingHintAdChoice = false
     
     var body: some View {
-        VStack(spacing: 16) {
-            // Difficulty selector
-            DifficultySelector()
-                .environmentObject(sudokuStore)
+        VStack(spacing: 6) {  // Reduced from 12 to 6
+            // Single compact line with all controls
+            HStack(spacing: 16) {
+                // Difficulty buttons with themed icons
+                DifficultyButton(difficulty: .easy, icon: "🌱")
+                    .environmentObject(sudokuStore)
+                
+                DifficultyButton(difficulty: .medium, icon: "⚡")
+                    .environmentObject(sudokuStore)
+                
+                DifficultyButton(difficulty: .hard, icon: "🔥")
+                    .environmentObject(sudokuStore)
+                
+                // Separator
+                Rectangle()
+                    .fill(Color.gray.opacity(0.3))
+                    .frame(width: 1, height: 30)
+                
+                // Action buttons
+                ActionButton(
+                    icon: "🔄",
+                    color: .blue,
+                    action: {
+                        sudokuStore.newGame()
+                    }
+                )
+                
+                ActionButton(
+                    icon: "💡",
+                    color: .orange,
+                    action: {
+                        showingHintAdChoice = true
+                    }
+                )
+                
+                ActionButton(
+                    icon: "✓",
+                    color: .green,
+                    action: {
+                        sudokuStore.autoSolve()
+                    }
+                )
+            }
+            .padding(.horizontal)
             
-            // Action buttons
-            ActionButtonsView()
-                .environmentObject(sudokuStore)
-            
-            // Number pad
+            // Number pad on second line
             NumberPadView()
                 .environmentObject(sudokuStore)
         }
-        .padding()
-    }
-}
-
-private struct DifficultySelector: View {
-    @EnvironmentObject var sudokuStore: SudokuStore
-    
-    var body: some View {
-        HStack(spacing: 12) {
-            Text("Difficulty:")
-                .font(.headline)
-            
-            HStack(spacing: 12) {
-                ForEach(SudokuDifficulty.allCases) { difficulty in
-                    DifficultyButton(difficulty: difficulty)
-                        .environmentObject(sudokuStore)
+        .padding(.horizontal)
+        .padding(.bottom, 4)  // Reduced from 8 to 4
+        .alert("Get a Hint", isPresented: $showingHintAdChoice) {
+            Button("Watch Ad for Free Hint") {
+                adManager.showRewardedAd { success, reward in
+                    if success {
+                        sudokuStore.getHint()
+                    }
                 }
             }
             
-            Spacer()
+            Button("Use Free Hint") {
+                sudokuStore.getHint()
+            }
+            
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Choose how to get your hint:")
         }
     }
 }
 
+
 private struct DifficultyButton: View {
     let difficulty: SudokuDifficulty
+    let icon: String
     @EnvironmentObject var sudokuStore: SudokuStore
     
     private var isSelected: Bool {
@@ -264,18 +323,15 @@ private struct DifficultyButton: View {
                 sudokuStore.setDifficulty(difficulty)
             }
         }) {
-            Text(difficulty.displayName)
-                .font(.subheadline)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 8)
-                .frame(minWidth: 80)
+            Text(icon)
+                .font(.system(size: 20))
+                .frame(width: 36, height: 36)
                 .background(
                     isSelected 
                         ? difficulty.color.opacity(0.3)
                         : Color.gray.opacity(0.1)
                 )
-                .foregroundColor(isSelected ? .primary : .secondary)
-                .cornerRadius(10)
+                .cornerRadius(8)
                 .scaleEffect(isSelected ? 1.05 : 1.0)
                 .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
         }
@@ -350,12 +406,11 @@ private struct ActionButton: View {
             
             action()
         }) {
-            Image(systemName: icon)
-                .font(.title2)
-                .foregroundColor(color)
-                .frame(width: 44, height: 44)
+            Text(icon)
+                .font(.system(size: 20))
+                .frame(width: 36, height: 36)
                 .background(color.opacity(0.2))
-                .cornerRadius(10)
+                .cornerRadius(8)
                 .scaleEffect(isPressed ? 0.95 : 1.0)
                 .animation(.easeInOut(duration: 0.1), value: isPressed)
         }
@@ -370,15 +425,15 @@ private struct NumberPadView: View {
     @EnvironmentObject var sudokuStore: SudokuStore
     
     var body: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 15) {
+        VStack(spacing: 6) {  // Reduced from 10 to 6
+            HStack(spacing: 12) {  // Reduced from 15 to 12
                 ForEach(1...5, id: \.self) { number in
                     OptimizedNumberButton(number: number)
                         .environmentObject(sudokuStore)
                 }
             }
             
-            HStack(spacing: 15) {
+            HStack(spacing: 12) {  // Reduced from 15 to 12
                 ForEach(6...9, id: \.self) { number in
                     OptimizedNumberButton(number: number)
                         .environmentObject(sudokuStore)
@@ -445,6 +500,26 @@ private struct EraseButton: View {
         .onLongPressGesture(minimumDuration: 0, maximumDistance: .infinity, pressing: { pressing in
             isPressed = pressing
         }, perform: {})
+    }
+}
+
+private struct TimerDisplayView: View {
+    @EnvironmentObject var sudokuStore: SudokuStore
+    
+    var body: some View {
+        HStack {
+            Image(systemName: "clock")
+                .font(.subheadline)
+            Text(formatTime(sudokuStore.timeSpentSeconds))
+                .font(.subheadline)
+                .monospacedDigit()
+        }
+    }
+    
+    private func formatTime(_ seconds: Int) -> String {
+        let minutes = seconds / 60
+        let remainingSeconds = seconds % 60
+        return String(format: "%02d:%02d", minutes, remainingSeconds)
     }
 }
 

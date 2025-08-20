@@ -73,6 +73,42 @@ class APIService: ObservableObject {
         networkMonitor.start(queue: networkQueue)
     }
     
+    // MARK: - Token Refresh Management
+    
+    func refreshToken() async throws -> AuthTokens {
+        let endpoint = "\(baseURL)/users/refresh"
+        
+        // Get current tokens from Keychain
+        guard let currentTokens = try await KeychainManager.shared.getAuthTokens(),
+              let refreshToken = currentTokens.refreshToken else {
+            throw APIError.invalidResponse
+        }
+        
+        let body = RefreshTokenRequest(refreshToken: refreshToken)
+        
+        let response: RefreshTokenResponse = try await performSimpleRequest(
+            endpoint: endpoint,
+            method: "POST",
+            body: body
+        )
+        
+        // Update stored tokens
+        try KeychainManager.shared.saveAuthTokens(
+            accessToken: response.accessToken,
+            refreshToken: response.refreshToken,
+            userId: currentTokens.userId,
+            username: currentTokens.username,
+            requireBiometric: try KeychainManager.shared.getBiometricEnabled()
+        )
+        
+        return AuthTokens(
+            accessToken: response.accessToken,
+            refreshToken: response.refreshToken,
+            userId: currentTokens.userId,
+            username: currentTokens.username
+        )
+    }
+    
     // MARK: - Authentication Methods (Optimized)
     
     func login(username: String, password: String) async throws -> User {
@@ -370,6 +406,30 @@ class APIService: ObservableObject {
             
             // Handle different status codes
             switch httpResponse.statusCode {
+            case 401:
+                // Unauthorized - try token refresh
+                if retryCount == 0 {
+                    do {
+                        _ = try await refreshToken()
+                        // Retry the original request with new token
+                        return try await executeRequest(
+                            endpoint: endpoint,
+                            method: method,
+                            body: body,
+                            cacheKey: cacheKey,
+                            retryCount: retryCount + 1
+                        )
+                    } catch {
+                        // Token refresh failed, clear tokens and throw original error
+                        try? KeychainManager.shared.clearAuthTokens()
+                        throw APIError.serverError(statusCode: 401)
+                    }
+                } else {
+                    // Already retried, clear tokens and fail
+                    try? KeychainManager.shared.clearAuthTokens()
+                    throw APIError.serverError(statusCode: 401)
+                }
+                
             case 200...299:
                 // Success - decode and cache response
                 let decoder = JSONDecoder()
@@ -602,3 +662,12 @@ struct SolvePuzzleRequest: Encodable {
 
 // Empty response type for endpoints that don't return data
 struct EmptyResponse: Decodable {}
+
+struct RefreshTokenRequest: Encodable {
+    let refreshToken: String
+}
+
+struct RefreshTokenResponse: Decodable {
+    let accessToken: String
+    let refreshToken: String
+}

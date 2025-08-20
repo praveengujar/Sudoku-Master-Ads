@@ -8,6 +8,7 @@ struct AuthView: View {
     @State private var confirmPassword = ""
     @State private var showAlert = false
     @State private var alertMessage = ""
+    @State private var enableBiometric = false
     
     var body: some View {
         NavigationView {
@@ -68,6 +69,46 @@ struct AuthView: View {
                                     .cornerRadius(10)
                             }
                             
+                            // Biometric authentication toggle (only show if available and in login mode)
+                            if isLoginMode && authManager.isBiometricAvailable {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack {
+                                        Toggle(isOn: $enableBiometric) {
+                                            HStack {
+                                                Image(systemName: authManager.biometricType.iconName)
+                                                    .foregroundColor(.blue)
+                                                Text("Enable \(authManager.biometricDisplayName)")
+                                                    .font(.subheadline)
+                                            }
+                                        }
+                                    }
+                                    
+                                    Text("Secure your account with biometric authentication for quick future logins")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .padding(.leading, 4)
+                                }
+                                .padding(.vertical, 10)
+                                .padding(.horizontal, 12)
+                                .background(Color.blue.opacity(0.05))
+                                .cornerRadius(10)
+                            } else if isLoginMode {
+                                // Show why biometric toggle is not available
+                                if !authManager.isBiometricAvailable {
+                                    HStack {
+                                        Image(systemName: "exclamationmark.triangle")
+                                            .foregroundColor(.orange)
+                                        Text("Biometric authentication is not available on this device")
+                                            .font(.caption)
+                                            .foregroundColor(.orange)
+                                    }
+                                    .padding(.vertical, 8)
+                                    .padding(.horizontal, 12)
+                                    .background(Color.orange.opacity(0.1))
+                                    .cornerRadius(8)
+                                }
+                            }
+                            
                             // Show any error message from auth manager
                             if let error = authManager.error {
                                 Text(error)
@@ -111,6 +152,37 @@ struct AuthView: View {
                                     .font(.subheadline)
                             }
                             .padding(.top, 10)
+                            
+                            // Face ID/Touch ID login (only in login mode and if biometric available and enabled)
+                            if isLoginMode && authManager.isBiometricAvailable && authManager.biometricEnabled {
+                                Button(action: {
+                                    Task {
+                                        await authManager.loginWithBiometric()
+                                    }
+                                }) {
+                                    HStack {
+                                        Image(systemName: authManager.biometricType.iconName)
+                                            .font(.title3)
+                                        Text("Sign in with \(authManager.biometricDisplayName)")
+                                            .fontWeight(.medium)
+                                    }
+                                    .foregroundColor(.white)
+                                    .frame(height: 50)
+                                    .frame(maxWidth: .infinity)
+                                    .background(Color.green)
+                                    .cornerRadius(10)
+                                }
+                                .disabled(authManager.isLoading)
+                                .overlay(
+                                    Group {
+                                        if authManager.isLoading {
+                                            ProgressView()
+                                                .foregroundColor(.white)
+                                        }
+                                    }
+                                )
+                                .padding(.top, 10)
+                            }
                             
                             // Guest mode
                             Button(action: {
@@ -182,7 +254,7 @@ struct AuthView: View {
         // Perform authentication
         Task {
             if isLoginMode {
-                await authManager.login(username: username, password: password)
+                await authManager.login(username: username, password: password, enableBiometric: enableBiometric)
             } else {
                 await authManager.register(username: username, password: password)
             }
