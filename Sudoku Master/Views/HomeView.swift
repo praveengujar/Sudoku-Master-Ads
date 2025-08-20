@@ -19,19 +19,12 @@ struct HomeView: View {
     
     var body: some View {
         NavigationView {
-            ZStack {
-                // Main content
-                MainContentView(showProfileSheet: $showProfileSheet)
-                    .environmentObject(sudokuStore)
-                    .environmentObject(authManager)
-                    .environmentObject(networkMonitor)
-                    .environmentObject(offlineStorage)
-                
-                #if DEBUG
-                // Performance overlay (debug only)
-                PerformanceOverlay()
-                #endif
-            }
+            // Main content
+            MainContentView(showProfileSheet: $showProfileSheet)
+                .environmentObject(sudokuStore)
+                .environmentObject(authManager)
+                .environmentObject(networkMonitor)
+                .environmentObject(offlineStorage)
             .navigationBarTitle("Sudoku Master", displayMode: .inline)
             .alert(isPresented: $sudokuStore.showVictoryAlert) {
                 Alert(
@@ -100,7 +93,7 @@ struct HomeView: View {
               let amount = userInfo["amount"] as? Int,
               let type = userInfo["type"] as? String else { return }
         
-        print("🎁 Ad reward earned: \(amount) from \(type)")
+// Ad reward earned: \(amount) from \(type)
         
         // If this was for a hint, provide the hint
         if showingRewardedAdForHint {
@@ -155,12 +148,6 @@ private struct MainContentView: View {
                 .environmentObject(adManager)
                 .frame(height: 60)
                 .padding(.horizontal)
-            
-            #if DEBUG
-            // Debug info (only in debug builds)
-            DebugInfoView()
-                .environmentObject(sudokuStore)
-            #endif
         }
     }
 }
@@ -247,17 +234,18 @@ private struct DifficultySelector: View {
     @EnvironmentObject var sudokuStore: SudokuStore
     
     var body: some View {
-        VStack(spacing: 8) {
+        HStack(spacing: 12) {
             Text("Difficulty:")
                 .font(.headline)
-                .frame(maxWidth: .infinity, alignment: .leading)
             
-            HStack(spacing: 8) {
+            HStack(spacing: 12) {
                 ForEach(SudokuDifficulty.allCases) { difficulty in
                     DifficultyButton(difficulty: difficulty)
                         .environmentObject(sudokuStore)
                 }
             }
+            
+            Spacer()
         }
     }
 }
@@ -273,16 +261,14 @@ private struct DifficultyButton: View {
     var body: some View {
         Button(action: {
             if !isSelected {
-                PerformanceMonitor.shared.startOperation("difficulty_change")
                 sudokuStore.setDifficulty(difficulty)
-                PerformanceMonitor.shared.endOperation("difficulty_change")
             }
         }) {
             Text(difficulty.displayName)
                 .font(.subheadline)
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 8)
                 .padding(.vertical, 8)
-                .frame(minWidth: 60)
+                .frame(minWidth: 80)
                 .background(
                     isSelected 
                         ? difficulty.color.opacity(0.3)
@@ -309,9 +295,7 @@ private struct ActionButtonsView: View {
                 icon: "arrow.clockwise",
                 color: .blue,
                 action: {
-                    PerformanceMonitor.shared.startOperation("new_game")
                     sudokuStore.newGame()
-                    PerformanceMonitor.shared.endOperation("new_game")
                 }
             )
             
@@ -327,37 +311,21 @@ private struct ActionButtonsView: View {
                 icon: "checkmark.circle",
                 color: .green,
                 action: {
-                    PerformanceMonitor.shared.startOperation("auto_solve")
                     sudokuStore.autoSolve()
-                    PerformanceMonitor.shared.endOperation("auto_solve")
                 }
             )
-            
-            #if DEBUG
-            ActionButton(
-                icon: "wrench",
-                color: .purple,
-                action: {
-                    sudokuStore.loadTestPuzzle()
-                }
-            )
-            #endif
         }
         .alert("Get a Hint", isPresented: $showingHintAdChoice) {
             Button("Watch Ad for Free Hint") {
                 adManager.showRewardedAd { success, reward in
                     if success {
-                        PerformanceMonitor.shared.startOperation("get_hint")
                         sudokuStore.getHint()
-                        PerformanceMonitor.shared.endOperation("get_hint")
                     }
                 }
             }
             
             Button("Use Free Hint") {
-                PerformanceMonitor.shared.startOperation("get_hint")
                 sudokuStore.getHint()
-                PerformanceMonitor.shared.endOperation("get_hint")
             }
             
             Button("Cancel", role: .cancel) { }
@@ -430,10 +398,7 @@ private struct OptimizedNumberButton: View {
     
     var body: some View {
         Button(action: {
-            PerformanceMonitor.shared.measureUIUpdate {
-                print("Number button \(number) pressed")
-                sudokuStore.enterNumber(number)
-            }
+            sudokuStore.enterNumber(number)
             
             // Haptic feedback
             let impactFeedback = UIImpactFeedbackGenerator(style: .light)
@@ -461,9 +426,7 @@ private struct EraseButton: View {
     
     var body: some View {
         Button(action: {
-            PerformanceMonitor.shared.measureUIUpdate {
-                sudokuStore.eraseNumber()
-            }
+            sudokuStore.eraseNumber()
             
             // Haptic feedback
             let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
@@ -486,37 +449,6 @@ private struct EraseButton: View {
 }
 
 // MARK: - Supporting Views
-
-#if DEBUG
-private struct DebugInfoView: View {
-    @EnvironmentObject var sudokuStore: SudokuStore
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text("Debug Info:")
-                .font(.caption)
-                .foregroundColor(.gray)
-            
-            Text("Grid filled: \(sudokuStore.grid.flatMap { $0 }.compactMap { $0 }.count)/81 cells")
-                .font(.caption2)
-                .foregroundColor(.gray)
-            
-            Text("Selected: (\(sudokuStore.selectedCell.row ?? -1), \(sudokuStore.selectedCell.col ?? -1))")
-                .font(.caption2)
-                .foregroundColor(.gray)
-            
-            Text("Offline mode: \(sudokuStore.isOfflineMode ? "Yes" : "No")")
-                .font(.caption2)
-                .foregroundColor(.gray)
-            
-            Text("Loading: \(sudokuStore.isLoading ? "Yes" : "No")")
-                .font(.caption2)
-                .foregroundColor(.gray)
-        }
-        .padding(.horizontal)
-    }
-}
-#endif
 
 // MARK: - Performance Caching
 

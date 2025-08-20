@@ -18,10 +18,21 @@ class AdManager: NSObject, ObservableObject {
     
     // MARK: - Ad Configuration
     private struct AdConfiguration {
-        // Replace these with your actual placement IDs from Meta Audience Network dashboard
-        static let metaPlacementBanner = "YOUR_META_PLACEMENT_ID"
-        static let metaPlacementInterstitial = "YOUR_META_PLACEMENT_ID" 
-        static let metaPlacementRewarded = "YOUR_META_PLACEMENT_ID"
+        // Disable ads until proper placement IDs are configured
+        static let adsEnabled = false
+        
+        // IMPORTANT: Replace these with your actual placement IDs from Meta Audience Network dashboard
+        // To enable ads:
+        // 1. Get placement IDs from https://developers.facebook.com/apps
+        // 2. Replace the placeholders below
+        // 3. Set adsEnabled = true
+        static let metaPlacementBanner = "YOUR_BANNER_PLACEMENT_ID"
+        static let metaPlacementInterstitial = "YOUR_INTERSTITIAL_PLACEMENT_ID"
+        static let metaPlacementRewarded = "YOUR_REWARDED_PLACEMENT_ID"
+        
+        // Test mode configuration
+        static let enableTestMode = true
+        static let debugMode = true
     }
     
     // MARK: - Ad Instances
@@ -106,6 +117,11 @@ class AdManager: NSObject, ObservableObject {
     // MARK: - Meta Banner Ad Integration
     
     private func loadMetaBanner(in viewController: UIViewController) -> FBAdView? {
+        guard AdConfiguration.adsEnabled else {
+            print("⚠️ Ads are disabled - no banner will be shown")
+            return nil
+        }
+        
         guard isMetaInitialized else {
             print("⚠️ Meta Audience Network not initialized")
             return nil
@@ -129,6 +145,11 @@ class AdManager: NSObject, ObservableObject {
     // MARK: - Meta Interstitial Ad Integration
     
     internal func loadMetaInterstitial() {
+        guard AdConfiguration.adsEnabled else {
+            print("⚠️ Ads are disabled - interstitial loading skipped")
+            return
+        }
+        
         guard isMetaInitialized else {
             print("⚠️ Meta Audience Network not initialized")
             return
@@ -150,6 +171,11 @@ class AdManager: NSObject, ObservableObject {
     // MARK: - Meta Rewarded Video Ad Integration
     
     internal func loadMetaRewarded() {
+        guard AdConfiguration.adsEnabled else {
+            print("⚠️ Ads are disabled - configure placement IDs to enable")
+            return
+        }
+        
         guard isMetaInitialized else {
             print("⚠️ Meta Audience Network not initialized")
             return
@@ -175,6 +201,11 @@ class AdManager: NSObject, ObservableObject {
     }
     
     func showInterstitialAd() {
+        guard AdConfiguration.adsEnabled else {
+            print("⚠️ Ads are disabled - no interstitial will be shown")
+            return
+        }
+        
         guard canShowAd() else {
             print("⚠️ Cannot show ad - frequency cap or consent not met")
             return
@@ -201,6 +232,13 @@ class AdManager: NSObject, ObservableObject {
     }
     
     func showRewardedAd(completion: @escaping (Bool, Int) -> Void) {
+        guard AdConfiguration.adsEnabled else {
+            print("⚠️ Ads are disabled - providing free reward")
+            // Provide free reward when ads are disabled
+            completion(true, 1)
+            return
+        }
+        
         guard canShowAd() else {
             print("⚠️ Cannot show rewarded ad - frequency cap or consent not met")
             completion(false, 0)
@@ -209,8 +247,8 @@ class AdManager: NSObject, ObservableObject {
         
         guard let metaRewarded = metaRewarded,
               metaRewarded.isAdValid else {
-            print("⚠️ Meta Rewarded ad not ready")
-            completion(false, 0)
+            print("⚠️ Meta Rewarded ad not ready - providing free reward")
+            completion(true, 1) // Provide free reward as fallback
             loadMetaRewarded() // Load for next time
             return
         }

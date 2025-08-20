@@ -46,9 +46,12 @@ class AuthManager: ObservableObject {
             self.isAuthenticated = true
             self.error = nil
         } catch {
+            print("🔍 Login Error Details: \(error)")
             let errorMessage = error.localizedDescription
-            if errorMessage.contains("connect") || errorMessage.contains("server") {
-                self.error = "Server unavailable. Try 'Continue as Guest' to play offline."
+            if errorMessage.contains("connect") || errorMessage.contains("server") || errorMessage.contains("parse") {
+                self.error = "Network issue. Try 'Continue as Guest' to play offline, or check your internet connection."
+            } else if errorMessage.contains("credentials") || errorMessage.contains("401") {
+                self.error = "Invalid username or password. Please try again."
             } else {
                 self.error = "Login failed: \(errorMessage)"
             }
@@ -67,9 +70,12 @@ class AuthManager: ObservableObject {
             self.isAuthenticated = true
             self.error = nil
         } catch {
+            print("🔍 Registration Error Details: \(error)")
             let errorMessage = error.localizedDescription
-            if errorMessage.contains("connect") || errorMessage.contains("server") {
-                self.error = "Server unavailable. Try 'Continue as Guest' to play offline."
+            if errorMessage.contains("connect") || errorMessage.contains("server") || errorMessage.contains("parse") {
+                self.error = "Network issue. Try 'Continue as Guest' to play offline, or check your internet connection."
+            } else if errorMessage.contains("exists") || errorMessage.contains("400") {
+                self.error = "Username already exists. Please choose a different username."
             } else {
                 self.error = "Registration failed: \(errorMessage)"
             }

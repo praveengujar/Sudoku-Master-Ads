@@ -189,21 +189,27 @@ class OfflineStorage: ObservableObject {
     private func loadPuzzlesFromStorage() async -> [String: [SudokuPuzzle]]? {
         return await withCheckedContinuation { continuation in
             storageQueue.async { [weak self] in
-                defer { continuation.resume(returning: nil) }
+                var hasResumed = false
+                
+                func safeResume(returning value: [String: [SudokuPuzzle]]?) {
+                    guard !hasResumed else { return }
+                    hasResumed = true
+                    continuation.resume(returning: value)
+                }
                 
                 guard let self = self,
                       let compressedData = UserDefaults.standard.data(forKey: StorageKeys.storedPuzzles) else {
-                    continuation.resume(returning: nil)
+                    safeResume(returning: nil)
                     return
                 }
                 
                 do {
                     let data = try compressedData.decompressed()
                     let puzzles = try self.decoder.decode([String: [SudokuPuzzle]].self, from: data)
-                    continuation.resume(returning: puzzles)
+                    safeResume(returning: puzzles)
                 } catch {
                     print("❌ Error loading puzzles: \(error)")
-                    continuation.resume(returning: nil)
+                    safeResume(returning: nil)
                 }
             }
         }

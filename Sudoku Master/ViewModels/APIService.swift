@@ -8,8 +8,8 @@ import Combine
 class APIService: ObservableObject {
     static let shared = APIService()
     
-    // Use the actual server URL from CLAUDE.md
-    let baseURL = "https://sudoku-master-app.replit.app/api"
+    // Updated to correct Sudoku Master project Cloud Run deployment (2025-08-18)
+    let baseURL = "https://sudoku-master-api-93673815784.us-central1.run.app/api"
     
     // Performance optimizations
     private let session: URLSession
@@ -31,18 +31,22 @@ class APIService: ObservableObject {
     private let maxCacheSize = 50
     
     private init() {
-        // Configure URLSession for optimal performance
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 15.0
-        config.timeoutIntervalForResource = 30.0
-        config.waitsForConnectivity = true
-        config.allowsCellularAccess = true
-        config.allowsExpensiveNetworkAccess = true
-        config.allowsConstrainedNetworkAccess = true
+        // Use simplest possible URLSession configuration to avoid protocol issues
+        let config = URLSessionConfiguration.ephemeral  // No caching at all
+        config.timeoutIntervalForRequest = 30.0
+        config.timeoutIntervalForResource = 60.0
+        config.httpMaximumConnectionsPerHost = 1  // Single connection
+        config.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        config.urlCache = nil
+        config.httpCookieStorage = nil
+        config.httpCookieAcceptPolicy = .never
         
-        // HTTP/2 and connection pooling optimizations
-        config.httpMaximumConnectionsPerHost = 4
-        config.requestCachePolicy = .useProtocolCachePolicy
+        // Disable all advanced networking features
+        config.waitsForConnectivity = false
+        config.allowsCellularAccess = true
+        config.allowsExpensiveNetworkAccess = false
+        config.allowsConstrainedNetworkAccess = false
+        config.shouldUseExtendedBackgroundIdleMode = false
         
         self.session = URLSession(configuration: config)
         
@@ -75,24 +79,46 @@ class APIService: ObservableObject {
         let endpoint = "\(baseURL)/users/login"
         let body: [String: String] = ["username": username, "password": password]
         
-        return try await performOptimizedRequest(
-            endpoint: endpoint,
-            method: "POST",
-            body: body,
-            cachePolicy: .reloadIgnoringCacheData
-        )
+        // Try simplified approach first for login
+        do {
+            return try await performSimpleRequest(
+                endpoint: endpoint,
+                method: "POST",
+                body: body
+            )
+        } catch {
+            print("🔄 Simple request failed, trying optimized request: \(error)")
+            // Fallback to optimized request
+            return try await performOptimizedRequest(
+                endpoint: endpoint,
+                method: "POST",
+                body: body,
+                cachePolicy: .reloadIgnoringCacheData
+            )
+        }
     }
     
     func register(username: String, password: String) async throws -> User {
         let endpoint = "\(baseURL)/users/register"
         let body: [String: String] = ["username": username, "password": password]
         
-        return try await performOptimizedRequest(
-            endpoint: endpoint,
-            method: "POST",
-            body: body,
-            cachePolicy: .reloadIgnoringCacheData
-        )
+        // Try simplified approach first for registration
+        do {
+            return try await performSimpleRequest(
+                endpoint: endpoint,
+                method: "POST",
+                body: body
+            )
+        } catch {
+            print("🔄 Simple registration failed, trying optimized request: \(error)")
+            // Fallback to optimized request
+            return try await performOptimizedRequest(
+                endpoint: endpoint,
+                method: "POST",
+                body: body,
+                cachePolicy: .reloadIgnoringCacheData
+            )
+        }
     }
     
     func getCurrentUser() async throws -> User {
@@ -205,6 +231,53 @@ class APIService: ObservableObject {
         return response["solution"] ?? []
     }
     
+    // MARK: - Simple Request Method (Fallback)
+    
+    private func performSimpleRequest<T: Decodable, U: Encodable>(
+        endpoint: String,
+        method: String,
+        body: U? = nil
+    ) async throws -> T {
+        
+        guard let url = URL(string: endpoint) else {
+            throw APIError.invalidURL
+        }
+        
+        // Create basic URLRequest
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        // Add body if provided
+        if let body = body {
+            let jsonData = try JSONSerialization.data(withJSONObject: ["username": (body as! [String: String])["username"]!, "password": (body as! [String: String])["password"]!])
+            request.httpBody = jsonData
+        }
+        
+        // Use basic URLSession
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        
+        guard httpResponse.statusCode == 200 else {
+            if httpResponse.statusCode == 401 {
+                throw APIError.serverError(statusCode: 401)
+            }
+            throw APIError.serverError(statusCode: httpResponse.statusCode)
+        }
+        
+        // Simple JSON decoding
+        do {
+            let decoder = JSONDecoder()
+            return try decoder.decode(T.self, from: data)
+        } catch {
+            print("❌ Simple decode error: \(error)")
+            throw APIError.decodingError(error: error)
+        }
+    }
+    
     // MARK: - Optimized Request Performance
     
     private func performOptimizedRequest<T: Decodable, U: Encodable>(
@@ -278,8 +351,8 @@ class APIService: ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("gzip, deflate", forHTTPHeaderField: "Accept-Encoding")
-        request.setValue("Sudoku-Master/1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         
         // Add request body if provided
         if let body = body {
@@ -302,12 +375,23 @@ class APIService: ObservableObject {
                 let decoder = JSONDecoder()
                 decoder.dateDecodingStrategy = .iso8601
                 
-                let decodedResponse = try decoder.decode(T.self, from: data)
+                // Debug: Print response data for troubleshooting
+                if let responseString = String(data: data, encoding: .utf8) {
+                    print("🔍 API Response: \(responseString)")
+                }
                 
-                // Cache successful responses
-                cacheResponse(data: data, for: cacheKey)
-                
-                return decodedResponse
+                do {
+                    let decodedResponse = try decoder.decode(T.self, from: data)
+                    
+                    // Cache successful responses
+                    cacheResponse(data: data, for: cacheKey)
+                    
+                    return decodedResponse
+                } catch {
+                    print("❌ JSON Decoding Error: \(error)")
+                    print("❌ Failed to decode type: \(T.self)")
+                    throw APIError.decodingError(error: error)
+                }
                 
             case 429:
                 // Rate limiting - retry with exponential backoff

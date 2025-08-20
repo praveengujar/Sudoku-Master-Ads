@@ -3,6 +3,8 @@ import SwiftUI
 import AppTrackingTransparency
 
 class AppDelegate: NSObject, UIApplicationDelegate {
+    var window: UIWindow?
+    
     var authManager: AuthManager!
     var networkMonitor: NetworkMonitor!
     var offlineStorage: OfflineStorage!

@@ -38,23 +38,35 @@ private struct GameBoardContent: View {
     let colors: BoardColors
     
     var body: some View {
-        LazyVStack(spacing: 0, pinnedViews: []) {
-            ForEach(0..<9, id: \.self) { row in
-                LazyHStack(spacing: 0) {
-                    ForEach(0..<9, id: \.self) { col in
-                        OptimizedSudokuCell(
-                            row: row,
-                            col: col,
-                            colors: colors
-                        )
-                        .environmentObject(sudokuStore)
+        GeometryReader { geometry in
+            let cellSize = min(geometry.size.width, geometry.size.height) / 9
+            
+            ZStack {
+                // Background
+                Rectangle()
+                    .fill(colors.backgroundColor)
+                
+                // Grid Lines
+                GridLinesView(colors: colors)
+                
+                // Cells
+                VStack(spacing: 0) {
+                    ForEach(0..<9, id: \.self) { row in
+                        HStack(spacing: 0) {
+                            ForEach(0..<9, id: \.self) { col in
+                                OptimizedSudokuCell(
+                                    row: row,
+                                    col: col,
+                                    colors: colors
+                                )
+                                .environmentObject(sudokuStore)
+                                .frame(width: cellSize, height: cellSize)
+                            }
+                        }
                     }
                 }
             }
         }
-        .overlay(
-            GridLinesView(colors: colors)
-        )
         .aspectRatio(1, contentMode: .fit)
         .padding()
         .background(colors.backgroundColor)
@@ -110,7 +122,6 @@ private struct OptimizedSudokuCell: View {
             cellData: cellData,
             colors: colors,
             onTap: {
-                print("Cell tapped at (\(row), \(col))")
                 sudokuStore.setSelectedCell(row: row, col: col)
             }
         )
@@ -225,8 +236,6 @@ private struct CellView: View {
                     .animation(.easeInOut(duration: 0.15), value: cellData.isSelected)
             }
         }
-        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
-        .aspectRatio(1, contentMode: .fit)
         .contentShape(Rectangle())
         .onTapGesture {
             // Haptic feedback for better UX
@@ -249,13 +258,12 @@ private struct NumberDisplayView: View {
         Group {
             if let value = cellValue {
                 Text("\(value)")
-                    .font(.title2)
-                    .fontWeight(isOriginal ? .bold : .regular)
+                    .font(.system(size: 20, weight: isOriginal ? .bold : .regular, design: .default))
                     .foregroundColor(textColor)
                     .transition(.scale.combined(with: .opacity))
             } else if let hintValue = hintValue {
                 Text("\(hintValue)")
-                    .font(.title2)
+                    .font(.system(size: 20, weight: .regular, design: .default))
                     .foregroundColor(textColor)
                     .opacity(0.7)
                     .transition(.opacity.combined(with: .scale))
