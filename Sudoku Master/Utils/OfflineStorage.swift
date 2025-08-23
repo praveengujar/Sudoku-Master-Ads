@@ -19,6 +19,10 @@ class OfflineStorage: ObservableObject {
     private var progressCache: [Int: StoredGameRecord] = [:]
     private var customPuzzleCache: [String: SavedCustomPuzzle] = [:]
     
+    // Batched write optimization
+    private var pendingWrites: [String: Data] = [:]
+    private var batchWriteTimer: Timer?
+    
     // Cache configuration
     private let maxCacheSize = 100
     private let cacheExpirationTime: TimeInterval = 300 // 5 minutes
@@ -58,6 +62,9 @@ class OfflineStorage: ObservableObject {
         
         // Setup cache cleanup timer
         setupCacheCleanup()
+        
+        // Setup batched writes for better performance
+        setupBatchedWrites()
     }
     
     // MARK: - Initialization and State Management
@@ -74,9 +81,11 @@ class OfflineStorage: ObservableObject {
     
     private func setupCacheCleanup() {
         // Clean up cache every 5 minutes
-        Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
-            Task { [weak self] in
-                await self?.cleanupExpiredCache()
+        DispatchQueue.main.async { [weak self] in
+            Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+                Task { [weak self] in
+                    await self?.cleanupExpiredCache()
+                }
             }
         }
     }
@@ -537,6 +546,51 @@ class OfflineStorage: ObservableObject {
             return encoded.count
         } catch {
             return 0
+        }
+    }
+    
+    // MARK: - Batched Write Optimization
+    
+    private func setupBatchedWrites() {
+        DispatchQueue.main.async { [weak self] in
+            self?.batchWriteTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+                Task { [weak self] in
+                    await self?.flushPendingWrites()
+                }
+            }
+        }
+    }
+    
+    private func scheduleWrite(key: String, data: Data) {
+        storageQueue.async { [weak self] in
+            self?.pendingWrites[key] = data
+        }
+    }
+    
+    private func flushPendingWrites() async {
+        let writes = await withCheckedContinuation { continuation in
+            storageQueue.async { [weak self] in
+                let currentWrites = self?.pendingWrites ?? [:]
+                self?.pendingWrites.removeAll()
+                continuation.resume(returning: currentWrites)
+            }
+        }
+        
+        if !writes.isEmpty {
+            await Task.detached {
+                for (key, data) in writes {
+                    UserDefaults.standard.set(data, forKey: key)
+                }
+            }.value
+            print("📦 Flushed \(writes.count) batched storage operations")
+        }
+    }
+    
+    deinit {
+        batchWriteTimer?.invalidate()
+        // Flush any remaining writes
+        Task {
+            await flushPendingWrites()
         }
     }
 }

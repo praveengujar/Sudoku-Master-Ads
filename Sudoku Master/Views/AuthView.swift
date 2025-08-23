@@ -154,8 +154,9 @@ struct AuthView: View {
                             }
                             .padding(.top, 10)
                             
-                            // Face ID/Touch ID login (only in login mode and if biometric available and enabled)
-                            if isLoginMode && authManager.isBiometricAvailable && authManager.biometricEnabled {
+                            // Face ID/Touch ID login (show if biometric available and in login mode)
+                            // Note: The biometric login method will handle checking for stored credentials
+                            if isLoginMode && authManager.isBiometricAvailable {
                                 Button(action: {
                                     Task {
                                         await authManager.loginWithBiometric()

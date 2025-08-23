@@ -57,8 +57,32 @@ class AdManager: NSObject, ObservableObject {
     // MARK: - Initialization
     
     private func setupAdManager() {
+        setupMemoryWarningObserver()
         Task { [weak self] in
             await self?.requestTrackingPermission()
+        }
+    }
+    
+    private func setupMemoryWarningObserver() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleMemoryWarning),
+            name: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil
+        )
+    }
+    
+    @objc private func handleMemoryWarning() {
+        print("⚠️ Memory warning - cleaning up ad caches")
+        // Clear invalid cached ads to free memory
+        if let bannerView = metaBannerView {
+            metaBannerView = nil
+        }
+        if let interstitial = metaInterstitial, !interstitial.isAdValid {
+            metaInterstitial = nil
+        }
+        if let rewarded = metaRewarded, !rewarded.isAdValid {
+            metaRewarded = nil
         }
     }
     
@@ -271,7 +295,12 @@ class AdManager: NSObject, ObservableObject {
     }
     
     // MARK: - Reward Completion Handler
-    internal var rewardCompletion: ((Bool, Int) -> Void)?
+    internal var rewardCompletion: ((Bool, Int) -> Void)? {
+        willSet {
+            // Clear previous completion handler to prevent retain cycles
+            rewardCompletion = nil
+        }
+    }
     
     // MARK: - Performance Optimization Methods
     

@@ -38,6 +38,18 @@ class KeychainManager {
         return context.biometryType
     }
     
+    func hasStoredCredentials() throws -> Bool {
+        // Check if we have the essential credentials stored (without triggering biometric auth)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: Keys.username,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        
+        let status = SecItemCopyMatching(query as CFDictionary, nil)
+        return status == errSecSuccess
+    }
+    
     func authenticateWithBiometrics() async throws -> Bool {
         guard isBiometricAvailable() else {
             throw BiometricError.notAvailable

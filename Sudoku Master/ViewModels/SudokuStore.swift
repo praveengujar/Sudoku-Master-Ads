@@ -47,11 +47,14 @@ class SudokuStore: ObservableObject {
     
     // Background queue for heavy operations
     private let backgroundQueue = DispatchQueue(label: "sudoku.background", qos: .userInitiated)
+    private let concurrentQueue = DispatchQueue(label: "sudoku.concurrent", qos: .userInitiated, attributes: .concurrent)
+    private let semaphore = DispatchSemaphore(value: 3) // Limit concurrent operations for scalability
     
     // MARK: - Initialization
     
     init() {
         setupValidationDebouncer()
+        setupMemoryWarningObserver()
         loadTestPuzzle()
     }
     
@@ -65,9 +68,25 @@ class SudokuStore: ObservableObject {
         timer?.invalidate()
         timer = nil
         cancellables.removeAll()
+        NotificationCenter.default.removeObserver(self)
     }
     
     // MARK: - Performance Optimizations
+    
+    private func setupMemoryWarningObserver() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleMemoryWarning),
+            name: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil
+        )
+    }
+    
+    @objc private func handleMemoryWarning() {
+        print("⚠️ Memory warning - cleaning up caches")
+        validationCache.removeAll()
+        // Clear any other expensive cached data
+    }
     
     private func setupValidationDebouncer() {
         validationDebouncer

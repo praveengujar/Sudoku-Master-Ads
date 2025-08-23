@@ -31,22 +31,22 @@ class APIService: ObservableObject {
     private let maxCacheSize = 50
     
     private init() {
-        // Use simplest possible URLSession configuration to avoid protocol issues
-        let config = URLSessionConfiguration.ephemeral  // No caching at all
-        config.timeoutIntervalForRequest = 30.0
-        config.timeoutIntervalForResource = 60.0
-        config.httpMaximumConnectionsPerHost = 1  // Single connection
-        config.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-        config.urlCache = nil
+        // Optimized URLSession configuration for better performance
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 15.0  // Reduced from 30s
+        config.timeoutIntervalForResource = 30.0  // Reduced from 60s
+        config.httpMaximumConnectionsPerHost = 6  // Increased from 1 for better concurrency
+        config.requestCachePolicy = .useProtocolCachePolicy
+        config.urlCache = URLCache(memoryCapacity: 4 * 1024 * 1024, diskCapacity: 20 * 1024 * 1024)
         config.httpCookieStorage = nil
         config.httpCookieAcceptPolicy = .never
         
-        // Disable all advanced networking features
+        // Enable HTTP/2 for multiplexing and better performance
+        config.httpShouldUsePipelining = true
         config.waitsForConnectivity = false
         config.allowsCellularAccess = true
-        config.allowsExpensiveNetworkAccess = false
-        config.allowsConstrainedNetworkAccess = false
-        config.shouldUseExtendedBackgroundIdleMode = false
+        config.allowsExpensiveNetworkAccess = true
+        config.allowsConstrainedNetworkAccess = true
         
         self.session = URLSession(configuration: config)
         
@@ -310,11 +310,13 @@ class APIService: ObservableObject {
             decoder.dateDecodingStrategy = .iso8601
             return try decoder.decode(T.self, from: data)
         } catch {
+            #if DEBUG
             print("❌ Simple decode error: \(error)")
             if let responseString = String(data: data, encoding: .utf8) {
                 print("🔍 Response data: \(responseString)")
             }
             print("🔍 Expected type: \(T.self)")
+            #endif
             throw APIError.decodingError(error: error)
         }
     }
@@ -440,10 +442,12 @@ class APIService: ObservableObject {
                 let decoder = JSONDecoder()
                 decoder.dateDecodingStrategy = .iso8601
                 
-                // Debug: Print response data for troubleshooting
+                // Debug: Print response data for troubleshooting (development only)
+                #if DEBUG
                 if let responseString = String(data: data, encoding: .utf8) {
                     print("🔍 API Response: \(responseString)")
                 }
+                #endif
                 
                 do {
                     let decodedResponse = try decoder.decode(T.self, from: data)

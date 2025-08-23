@@ -401,8 +401,7 @@ private struct ActionButton: View {
     var body: some View {
         Button(action: {
             // Haptic feedback
-            let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-            impactFeedback.impactOccurred()
+            HapticManager.shared.mediumImpactOccurred()
             
             action()
         }) {
@@ -456,8 +455,7 @@ private struct OptimizedNumberButton: View {
             sudokuStore.enterNumber(number)
             
             // Haptic feedback
-            let impactFeedback = UIImpactFeedbackGenerator(style: .light)
-            impactFeedback.impactOccurred()
+            HapticManager.shared.lightImpactOccurred()
         }) {
             Text("\(number)")
                 .font(.title2)
@@ -484,8 +482,7 @@ private struct EraseButton: View {
             sudokuStore.eraseNumber()
             
             // Haptic feedback
-            let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-            impactFeedback.impactOccurred()
+            HapticManager.shared.mediumImpactOccurred()
         }) {
             Image(systemName: "delete.left")
                 .font(.title2)

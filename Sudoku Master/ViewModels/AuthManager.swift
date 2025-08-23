@@ -319,4 +319,12 @@ class AuthManager: ObservableObject {
     var isBiometricAvailable: Bool {
         return keychainManager.isBiometricAvailable()
     }
+    
+    var hasStoredCredentials: Bool {
+        do {
+            return try keychainManager.hasStoredCredentials()
+        } catch {
+            return false
+        }
+    }
 }

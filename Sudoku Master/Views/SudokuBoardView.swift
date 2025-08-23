@@ -214,8 +214,7 @@ private struct CellView: View {
         .contentShape(Rectangle())
         .onTapGesture {
             // Haptic feedback for better UX
-            let impactFeedback = UIImpactFeedbackGenerator(style: .light)
-            impactFeedback.impactOccurred()
+            HapticManager.shared.lightImpactOccurred()
             onTap()
         }
     }
