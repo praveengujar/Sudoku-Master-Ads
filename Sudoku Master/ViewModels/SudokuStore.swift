@@ -611,20 +611,25 @@ class SudokuStore: ObservableObject {
     }
     
     private func saveProgressAsync(isCompleted: Bool) async {
-        guard let puzzleId = puzzleId else { return }
+        guard let puzzleId = puzzleId else { 
+            print("⚠️ Cannot save progress: puzzleId is nil")
+            return 
+        }
+        print("🔍 Saving progress for puzzle: \(puzzleId), completed: \(isCompleted)")
         
         do {
             if isOfflineMode {
                 await saveLocalProgressAsync(isCompleted: isCompleted)
             } else {
                 if let userId = authManager?.currentUser?.id {
-                    let _ = try await APIService.shared.saveGameProgress(
+                    let gameRecord = try await APIService.shared.saveGameProgress(
                         userId: userId,
                         puzzleId: puzzleId,
                         currentGrid: grid,
                         isCompleted: isCompleted,
                         timeSpentSeconds: timeSpentSeconds
                     )
+                    print("✅ Game progress saved: \(gameRecord.id)")
                 }
             }
         } catch {

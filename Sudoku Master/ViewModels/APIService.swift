@@ -307,9 +307,14 @@ class APIService: ObservableObject {
         // Simple JSON decoding
         do {
             let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
             return try decoder.decode(T.self, from: data)
         } catch {
             print("❌ Simple decode error: \(error)")
+            if let responseString = String(data: data, encoding: .utf8) {
+                print("🔍 Response data: \(responseString)")
+            }
+            print("🔍 Expected type: \(T.self)")
             throw APIError.decodingError(error: error)
         }
     }

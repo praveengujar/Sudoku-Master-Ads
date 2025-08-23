@@ -116,37 +116,24 @@ class KeychainManager {
     
     func getAuthTokens() async throws -> AuthTokens? {
         do {
-            // Check if biometric is required
-            let biometricRequired = try getBiometricEnabled()
+            // Create shared authentication context to avoid multiple biometric prompts
+            let context = LAContext()
+            context.localizedFallbackTitle = "Use Passcode"
             
-            if biometricRequired {
-                // Authenticate with biometrics first
-                do {
-                    let authenticated = try await authenticateWithBiometrics()
-                    guard authenticated else {
-                        print("⚠️ Biometric authentication was not successful")
-                        throw KeychainError.biometricAuthenticationRequired
-                    }
-                } catch {
-                    print("⚠️ Biometric authentication failed: \(error.localizedDescription)")
-                    throw KeychainError.biometricAuthenticationRequired
-                }
-            }
-            
-            // Retrieve tokens with error handling
-            guard let accessTokenData = try getFromKeychain(key: Keys.accessToken),
+            // Retrieve tokens with shared context
+            guard let accessTokenData = try getFromKeychainWithContext(key: Keys.accessToken, context: context),
                   let accessToken = String(data: accessTokenData, encoding: .utf8),
-                  let userIdData = try getFromKeychain(key: Keys.userId),
+                  let userIdData = try getFromKeychainWithContext(key: Keys.userId, context: context),
                   let userIdString = String(data: userIdData, encoding: .utf8),
                   let userId = Int(userIdString),
-                  let usernameData = try getFromKeychain(key: Keys.username),
+                  let usernameData = try getFromKeychainWithContext(key: Keys.username, context: context),
                   let username = String(data: usernameData, encoding: .utf8) else {
                 print("⚠️ Could not retrieve all required authentication data from Keychain")
                 return nil
             }
             
             // Refresh token is optional
-            let refreshTokenData = try? getFromKeychain(key: Keys.refreshToken)
+            let refreshTokenData = try? getFromKeychainWithContext(key: Keys.refreshToken, context: context)
             let refreshToken = refreshTokenData.flatMap { String(data: $0, encoding: .utf8) }
             
             return AuthTokens(
@@ -230,6 +217,32 @@ class KeychainManager {
             kSecAttrAccount as String: key,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        
+        guard status == errSecSuccess else {
+            if status == errSecItemNotFound {
+                return nil
+            }
+            // Handle biometric authentication failures (status codes for user cancel and auth failure)
+            if status == -128 || status == -25293 || status == -25300 {
+                throw KeychainError.biometricAuthenticationRequired
+            }
+            throw KeychainError.retrieveError(status)
+        }
+        
+        return result as? Data
+    }
+    
+    private func getFromKeychainWithContext(key: String, context: LAContext) throws -> Data? {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: key,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecUseAuthenticationContext as String: context
         ]
         
         var result: AnyObject?
