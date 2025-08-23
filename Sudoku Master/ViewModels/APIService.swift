@@ -286,8 +286,8 @@ class APIService: ObservableObject {
         
         // Add body if provided
         if let body = body {
-            let jsonData = try JSONSerialization.data(withJSONObject: ["username": (body as! [String: String])["username"]!, "password": (body as! [String: String])["password"]!])
-            request.httpBody = jsonData
+            let encoder = JSONEncoder()
+            request.httpBody = try encoder.encode(body)
         }
         
         // Use basic URLSession

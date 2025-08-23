@@ -54,6 +54,7 @@ struct AuthView: View {
                                 .cornerRadius(10)
                                 .autocapitalization(.none)
                                 .disableAutocorrection(true)
+                                .textInputAutocapitalization(.never)
                             
                             // Password field
                             SecureField("Password", text: $password)
