@@ -3,6 +3,8 @@
 A high-performance SwiftUI iOS Sudoku game with enterprise-grade optimizations, streamlined Meta Audience Network ad monetization, biometric authentication, and a scalable containerized Node.js backend on Google Cloud Run.
 
 ## 🌟 **Latest Updates (August 2025)**
+- **🔐 Authentication Persistence Fixed**: Users no longer need to recreate usernames after app updates
+- **✨ Single Face ID Prompt**: Eliminated multiple biometric authentication prompts on startup
 - **🚀 40% Faster App Launch**: Async service initialization with loading states
 - **🔐 Face ID/Touch ID Login**: Seamless biometric authentication for returning users  
 - **⚡ 30% Network Performance Boost**: HTTP/2 multiplexing + optimized connection pooling
@@ -16,7 +18,8 @@ A high-performance SwiftUI iOS Sudoku game with enterprise-grade optimizations, 
 ### iOS App Features
 - **🎮 Complete Sudoku Game**: Multiple difficulty levels with auto-generation and solving
 - **🌐 Dual Mode Operation**: Online API integration with intelligent offline fallback
-- **🔐 Biometric Authentication**: Face ID/Touch ID login with secure keychain storage
+- **🔐 Persistent Authentication**: Secure login that survives app updates with automatic credential validation
+- **✨ Smart Biometric Integration**: Single Face ID prompt with user-controlled authentication
 - **📊 Streamlined Ad Integration**: Meta Audience Network ONLY with privacy compliance
 - **⚡ Performance Optimized**: Async operations, batched storage, intelligent caching
 - **📱 Production Ready**: Enterprise-grade error handling, memory management, monitoring
@@ -94,7 +97,7 @@ Sudoku Master/
 │   ├── NetworkMonitor.swift        # Connectivity tracking
 │   ├── OfflineStorage.swift        # Local puzzle storage (batched writes)
 │   ├── PerformanceMonitor.swift    # Real-time metrics
-│   ├── KeychainManager.swift       # Biometric auth + secure storage
+│   ├── KeychainManager.swift       # Persistent credentials + biometric auth
 │   └── HapticManager.swift         # Shared haptic feedback
 └── AppDelegate.swift               # Async lifecycle management
 ```
@@ -111,6 +114,42 @@ api-server/
 ├── gcloud-deploy.sh                # Direct deployment
 └── README.md                       # API documentation
 ```
+
+## 🔐 Authentication System
+
+### Persistent Login (August 2025 Update)
+The authentication system has been completely redesigned to eliminate the need to recreate usernames after app updates:
+
+#### Key Features
+- **Cross-Update Persistence**: Login credentials survive app rebuilds and iOS updates
+- **Single Face ID Prompt**: Consolidated authentication flow prevents multiple biometric prompts
+- **Automatic Recovery**: Self-healing system detects and cleans up corrupted credentials
+- **Smart Validation**: Tests stored credentials against API before using them
+
+#### User Experience
+- **Face ID Enabled**: Manual authentication via "Sign in with Face ID" button (no auto-prompts)
+- **Face ID Disabled**: Automatic login with stored credentials
+- **Fresh Install**: Clean authentication flow for new users
+- **Error Recovery**: Graceful handling of invalid credentials with helpful user guidance
+
+#### Technical Implementation
+```swift
+// Consolidated authentication flow
+func performSingleAuthenticationFlow() async {
+    // 1. Check credentials exist (no biometric prompt)
+    // 2. Get username for logging (no biometric prompt)  
+    // 3. Check biometric setting (no biometric prompt)
+    // 4. If biometric required → user controls authentication
+    // 5. If not required → get credentials once (max 1 prompt)
+    // 6. Auto-login with validated credentials
+}
+```
+
+### Security Features
+- **Keychain Storage**: Secure credential storage using iOS Keychain Services
+- **Biometric Protection**: Optional Face ID/Touch ID protection for stored passwords
+- **Credential Validation**: Automatic detection of corrupted or invalid credentials
+- **Privacy Compliant**: No sensitive data logging, secure credential handling
 
 ## 🔧 Build & Troubleshooting
 
@@ -260,6 +299,14 @@ npm test  # If test scripts are added
 
 ## 📝 Recent Implementation Learnings
 
+### Authentication Persistence & Face ID Fixes (2025-08-24)
+- **Authentication System Overhaul**: Complete redesign eliminating need to recreate usernames after app updates
+- **Persistent Credential Storage**: Fixed keychain storage architecture to properly handle username/password persistence
+- **Single Face ID Flow**: Consolidated authentication prevents multiple biometric prompts (3 → 1 maximum)
+- **Automatic Recovery**: Self-healing system detects and cleans up corrupted authentication states
+- **Smart Validation**: Credentials tested against API before use, with graceful error handling
+- **Simplified Token Handling**: Removed unsupported JWT refresh logic to match backend capabilities
+
 ### Performance Optimization & Bug Fixes (2025-08-23)
 - **Comprehensive Performance Analysis**: 25-50% improvements across app launch, network, and memory
 - **Network Optimization**: HTTP/2 multiplexing, increased connection pooling from 1 to 6
@@ -319,13 +366,19 @@ This project is for educational and demonstration purposes. Please ensure compli
 ## 🆘 Support
 
 ### Common Issues
-1. **Module Import Errors**: Run clean rebuild commands (see Build & Troubleshooting section)
-2. **Sandbox Permission Errors**: Verify `ENABLE_USER_SCRIPT_SANDBOXING = NO` in both Podfile and project
-3. **Workspace Won't Open**: Delete workspace and rebuild: `rm -rf "Sudoku Master.xcworkspace" && pod install`
-4. **AdManager Scope Errors**: Ensure `@EnvironmentObject var adManager: AdManager` in all view structs
-5. **Meta Ad Loading**: Check network connectivity and Meta placement IDs
-6. **Face ID Not Working**: Ensure biometric authentication is enabled in device settings
-7. **Performance Issues**: Check memory warnings and clear derived data if needed
+1. **Authentication Persistence**: 
+   - ✅ **Fixed**: Users no longer need to recreate usernames after app updates
+   - **If still occurs**: Check CLAUDE.md for comprehensive authentication troubleshooting guide
+2. **Multiple Face ID Prompts**: 
+   - ✅ **Fixed**: Consolidated authentication flow prevents multiple biometric prompts
+   - **Expected behavior**: Maximum 1 Face ID prompt per session, or manual authentication if Face ID enabled
+3. **Module Import Errors**: Run clean rebuild commands (see Build & Troubleshooting section)
+4. **Sandbox Permission Errors**: Verify `ENABLE_USER_SCRIPT_SANDBOXING = NO` in both Podfile and project
+5. **Workspace Won't Open**: Delete workspace and rebuild: `rm -rf "Sudoku Master.xcworkspace" && pod install`
+6. **AdManager Scope Errors**: Ensure `@EnvironmentObject var adManager: AdManager` in all view structs
+7. **Meta Ad Loading**: Check network connectivity and Meta placement IDs
+8. **Face ID Not Working**: Ensure biometric authentication is enabled in device settings
+9. **Performance Issues**: Check memory warnings and clear derived data if needed
 
 ### Documentation
 - **iOS Development**: See `CLAUDE.md` for detailed implementation notes and performance optimizations

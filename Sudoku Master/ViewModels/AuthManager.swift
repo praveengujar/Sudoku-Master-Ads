@@ -44,40 +44,70 @@ class AuthManager: ObservableObject {
     
     func checkExistingUser() {
         Task {
-            await autoLogin()
+            await performSingleAuthenticationFlow()
         }
     }
     
     @MainActor
-    func autoLogin() async {
+    private func performSingleAuthenticationFlow() async {
         isLoading = true
         defer { isLoading = false }
         
+        // Clear any existing error messages
+        self.error = nil
+        
         do {
-            // Check if biometric is required first
+            // Check if we have stored credentials first (no biometric prompt)
+            guard try keychainManager.hasStoredCredentials() else {
+                print("⚠️ No stored credentials found - user needs to login manually")
+                return
+            }
+            
+            // Get the username to show in logs (doesn't trigger biometric)
+            let storedUsername = try keychainManager.getUsernameIfAvailable() ?? "Unknown"
+            print("✅ Found stored credentials for user: \(storedUsername)")
+            
+            // Check if biometric is required
             let biometricRequired = try keychainManager.getBiometricEnabled()
             
             if biometricRequired {
-                // If biometric is required, don't auto-login on app startup
-                // User will need to use the biometric login button manually
                 print("⚠️ Biometric authentication required - skipping auto-login")
-                print("ℹ️ User can use 'Sign in with Face ID' button to authenticate")
+                print("ℹ️ User can use 'Sign in with \(biometricDisplayName)' button to authenticate")
                 return
             }
             
-            // Try to get stored credentials (non-biometric protected)
-            guard let authTokens = try await keychainManager.getAuthTokens() else {
-                // No stored credentials, user needs to login
-                print("⚠️ No stored credentials found")
+            // Only now try to get credentials (this will prompt Face ID if needed)
+            guard let userCredentials = try await keychainManager.getUserCredentials() else {
+                print("⚠️ Could not retrieve stored credentials - clearing them")
+                try? keychainManager.clearUserCredentials()
                 return
             }
             
-            // Use stored username and password to auto-login
-            let username = authTokens.accessToken // We stored username as accessToken
-            let password = authTokens.refreshToken ?? "" // We stored password as refreshToken
+            // Validate credentials are not empty
+            if userCredentials.username.isEmpty || userCredentials.password.isEmpty {
+                print("⚠️ Stored credentials are empty - clearing them")
+                try? keychainManager.clearUserCredentials()
+                return
+            }
+            
+            print("✅ Retrieved valid credentials for user: \(userCredentials.username)")
+            
+            // Test credentials with API and auto-login if valid
+            await performAutoLoginWithCredentials(userCredentials)
+            
+        } catch {
+            print("⚠️ Error in authentication flow: \(error.localizedDescription)")
+            try? keychainManager.clearUserCredentials()
+        }
+    }
+    
+    @MainActor
+    private func performAutoLoginWithCredentials(_ credentials: UserCredentials) async {
+        do {
+            print("🔄 Attempting auto-login for user: \(credentials.username)")
             
             // Attempt login with stored credentials
-            let user = try await APIService.shared.login(username: username, password: password)
+            let user = try await APIService.shared.login(username: credentials.username, password: credentials.password)
             
             // Successfully authenticated with stored credentials
             self.currentUser = user
@@ -87,24 +117,26 @@ class AuthManager: ObservableObject {
             print("✅ Auto-login successful for user: \(user.username)")
             
         } catch {
-            // Handle different types of errors
-            if let keychainError = error as? KeychainError,
-               case .biometricAuthenticationRequired = keychainError {
-                // Biometric authentication was cancelled or failed
-                print("⚠️ Biometric authentication required - user needs to authenticate manually")
-                self.currentUser = nil
-                self.isAuthenticated = false
-                // Don't clear credentials, just let user try biometric login manually
+            print("⚠️ Auto-login failed: \(error.localizedDescription)")
+            
+            // Only clear credentials if it's an authentication error (401)
+            let errorMessage = error.localizedDescription
+            if errorMessage.contains("credentials") || errorMessage.contains("401") {
+                try? keychainManager.clearUserCredentials()
+                try? keychainManager.setBiometricEnabled(false)
+                biometricEnabled = false
+                print("⚠️ Cleared invalid stored credentials and disabled biometric")
             } else {
-                // Other login errors - clear invalid credentials
-                try? keychainManager.clearAuthTokens()
-                self.currentUser = nil
-                self.isAuthenticated = false
-                print("⚠️ Auto-login failed: \(error.localizedDescription)")
-                print("⚠️ Cleared stored credentials")
+                print("ℹ️ Keeping stored credentials - error may be temporary")
             }
+            
+            self.currentUser = nil
+            self.isAuthenticated = false
         }
     }
+    
+    // Removed old validation methods - now consolidated into performSingleAuthenticationFlow
+    // Removed duplicate autoLogin method - now using performSingleAuthenticationFlow
     
     @MainActor
     func loadCurrentUser() async {
@@ -132,11 +164,10 @@ class AuthManager: ObservableObject {
             let user = try await APIService.shared.login(username: username, password: password)
             
             // Store user credentials in Keychain for persistent login
-            try keychainManager.saveAuthTokens(
-                accessToken: username, // Store username as token for now
-                refreshToken: password, // Store password as refresh token for now
+            try keychainManager.saveUserCredentials(
+                username: username,
+                password: password,
                 userId: user.id,
-                username: user.username,
                 requireBiometric: enableBiometric
             )
             
@@ -173,14 +204,14 @@ class AuthManager: ObservableObject {
         
         do {
             // Get stored credentials with biometric authentication
-            guard let authTokens = try await keychainManager.getAuthTokens() else {
+            guard let userCredentials = try await keychainManager.getUserCredentials() else {
                 self.error = "No stored credentials found. Please login with username and password first."
                 return
             }
             
             // Use stored credentials to login
-            let username = authTokens.accessToken // We stored username as accessToken
-            let password = authTokens.refreshToken ?? "" // We stored password as refreshToken
+            let username = userCredentials.username
+            let password = userCredentials.password
             
             let user = try await APIService.shared.login(username: username, password: password)
             
@@ -234,8 +265,8 @@ class AuthManager: ObservableObject {
         do {
             try await APIService.shared.logout()
             
-            // Clear stored tokens from Keychain
-            try keychainManager.clearAuthTokens()
+            // Clear stored credentials from Keychain
+            try keychainManager.clearUserCredentials()
             
             self.currentUser = nil
             self.isAuthenticated = false
@@ -246,8 +277,8 @@ class AuthManager: ObservableObject {
             print("✅ Logout successful and tokens cleared")
             
         } catch {
-            // Even if API logout fails, clear local tokens
-            try? keychainManager.clearAuthTokens()
+            // Even if API logout fails, clear local credentials
+            try? keychainManager.clearUserCredentials()
             self.currentUser = nil
             self.isAuthenticated = false
             self.isGuestMode = false
@@ -287,12 +318,11 @@ class AuthManager: ObservableObject {
             // If enabling biometric and user is logged in, re-save credentials with biometric protection
             if enabled && isAuthenticated, let user = currentUser {
                 // Get current stored credentials
-                if let authTokens = try? await keychainManager.getAuthTokens() {
-                    try keychainManager.saveAuthTokens(
-                        accessToken: authTokens.accessToken, // Keep stored username
-                        refreshToken: authTokens.refreshToken, // Keep stored password
+                if let userCredentials = try? await keychainManager.getUserCredentials() {
+                    try keychainManager.saveUserCredentials(
+                        username: userCredentials.username,
+                        password: userCredentials.password,
                         userId: user.id,
-                        username: user.username,
                         requireBiometric: true
                     )
                 }
@@ -325,6 +355,46 @@ class AuthManager: ObservableObject {
             return try keychainManager.hasStoredCredentials()
         } catch {
             return false
+        }
+    }
+    
+    // MARK: - Debug and Maintenance Methods
+    
+    @MainActor
+    func clearStoredCredentials() {
+        do {
+            try keychainManager.clearUserCredentials()
+            self.biometricEnabled = false
+            self.isAuthenticated = false
+            self.currentUser = nil
+            print("✅ Manually cleared all stored credentials")
+        } catch {
+            print("⚠️ Error clearing credentials: \(error.localizedDescription)")
+        }
+    }
+    
+    @MainActor
+    func debugStoredCredentials() async {
+        do {
+            let hasCredentials = try keychainManager.hasStoredCredentials()
+            let biometricEnabled = try keychainManager.getBiometricEnabled()
+            
+            print("🔍 Debug Stored Credentials:")
+            print("   - Has Credentials: \(hasCredentials)")
+            print("   - Biometric Enabled: \(biometricEnabled)")
+            print("   - Biometric Available: \(keychainManager.isBiometricAvailable())")
+            
+            if hasCredentials {
+                if let credentials = try await keychainManager.getUserCredentials() {
+                    print("   - Username: \(credentials.username)")
+                    print("   - Password: [REDACTED - Length: \(credentials.password.count)]")
+                    print("   - User ID: \(credentials.userId)")
+                } else {
+                    print("   - ⚠️ Could not retrieve credentials despite hasStoredCredentials = true")
+                }
+            }
+        } catch {
+            print("🔍 Debug Error: \(error.localizedDescription)")
         }
     }
 }

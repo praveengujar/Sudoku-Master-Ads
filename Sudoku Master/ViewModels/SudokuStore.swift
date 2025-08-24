@@ -39,6 +39,7 @@ class SudokuStore: ObservableObject {
     private weak var offlineStorage: OfflineStorage?
     private weak var authManager: AuthManager?
     private weak var adManager: AdManager?
+    private weak var networkMonitor: NetworkMonitor?
     
     // Ad integration tracking
     private var gamesCompleted = 0
@@ -58,9 +59,10 @@ class SudokuStore: ObservableObject {
         loadTestPuzzle()
     }
     
-    func setDependencies(offlineStorage: OfflineStorage, authManager: AuthManager) {
+    func setDependencies(offlineStorage: OfflineStorage, authManager: AuthManager, networkMonitor: NetworkMonitor) {
         self.offlineStorage = offlineStorage
         self.authManager = authManager
+        self.networkMonitor = networkMonitor
         self.adManager = AdManager.shared
     }
     
@@ -131,6 +133,11 @@ class SudokuStore: ObservableObject {
                     print("🎯 Using online mode - calling API")
                     let puzzle = try await APIService.shared.generatePuzzle(difficulty: self.difficulty)
                     await self.updateGameState(with: puzzle)
+                    
+                    // Background download of additional puzzles for this difficulty
+                    Task.detached(priority: .background) { [weak self] in
+                        await self?.downloadAdditionalPuzzlesInBackground()
+                    }
                 }
             } catch {
                 await self.handleGameLoadError(error)
@@ -177,16 +184,89 @@ class SudokuStore: ObservableObject {
             self.puzzleId = puzzle.id
             resetGameState()
             isLoading = false
-            print("Successfully loaded offline puzzle with \(puzzle.grid.flatMap { $0 }.compactMap { $0 }.count) filled cells")
+            print("✅ Successfully loaded offline puzzle with \(puzzle.grid.flatMap { $0 }.compactMap { $0 }.count) filled cells")
         } else {
+            // Try to download a puzzle for this difficulty if network is available
+            await tryDownloadPuzzleForCurrentDifficulty()
+        }
+    }
+    
+    @MainActor
+    private func tryDownloadPuzzleForCurrentDifficulty() async {
+        // Only try to download if we're not in manual offline mode and have network
+        if !isOfflineMode && (networkMonitor?.isConnected ?? false) {
+            errorMessage = "Downloading \(difficulty.displayName) puzzle..."
+            print("🔄 No offline puzzles for \(difficulty.displayName). Attempting to download...")
+            
+            do {
+                // Try to download one puzzle for current difficulty
+                let puzzle = try await APIService.shared.generatePuzzle(difficulty: difficulty)
+                
+                // Store it for future use
+                var puzzleDict: [String: [SudokuPuzzle]] = [:]
+                puzzleDict[difficulty.rawValue] = [puzzle]
+                _ = offlineStorage?.savePuzzles(puzzles: puzzleDict)
+                
+                // Use the downloaded puzzle immediately
+                self.grid = puzzle.grid
+                self.originalGrid = puzzle.grid
+                self.puzzleId = puzzle.id
+                resetGameState()
+                isLoading = false
+                errorMessage = nil // Clear the downloading message
+                print("✅ Downloaded and loaded puzzle for \(difficulty.displayName)")
+                
+            } catch {
+                print("⚠️ Failed to download puzzle: \(error.localizedDescription)")
+                await loadFallbackPuzzle()
+            }
+        } else {
+            print("⚠️ Cannot download puzzles - offline mode or no network")
             await loadFallbackPuzzle()
+        }
+    }
+    
+    private func downloadAdditionalPuzzlesInBackground() async {
+        guard let offlineStorage = offlineStorage,
+              networkMonitor?.isConnected ?? false else { return }
+        
+        print("📥 Background download: Adding puzzles for \(difficulty.displayName) difficulty")
+        
+        // Download 2-3 additional puzzles for current difficulty
+        var newPuzzles: [SudokuPuzzle] = []
+        
+        for i in 1...3 {
+            do {
+                let puzzle = try await APIService.shared.generatePuzzle(difficulty: difficulty)
+                newPuzzles.append(puzzle)
+                print("📥 Downloaded additional puzzle \(i)/3 for \(difficulty.displayName)")
+            } catch {
+                print("⚠️ Failed to download additional puzzle \(i): \(error)")
+                break
+            }
+        }
+        
+        if !newPuzzles.isEmpty {
+            // Get existing puzzles and append new ones
+            if var existingPuzzles = offlineStorage.getStoredPuzzles() {
+                if existingPuzzles[difficulty.rawValue] != nil {
+                    existingPuzzles[difficulty.rawValue]?.append(contentsOf: newPuzzles)
+                } else {
+                    existingPuzzles[difficulty.rawValue] = newPuzzles
+                }
+                _ = offlineStorage.savePuzzles(puzzles: existingPuzzles)
+            } else {
+                let puzzleDict = [difficulty.rawValue: newPuzzles]
+                _ = offlineStorage.savePuzzles(puzzles: puzzleDict)
+            }
+            print("✅ Added \(newPuzzles.count) puzzles to offline storage for \(difficulty.displayName)")
         }
     }
     
     @MainActor
     private func loadFallbackPuzzle() async {
-        errorMessage = "No offline puzzles available for \(difficulty.displayName) difficulty. Loading fallback puzzle..."
-        print("No offline puzzles available for difficulty: \(difficulty.displayName), creating fallback puzzle")
+        errorMessage = "Generating \(difficulty.displayName) puzzle..."
+        print("Creating fallback puzzle for difficulty: \(difficulty.displayName)")
         
         // Create fallback puzzle on background queue to avoid blocking UI
         let fallbackPuzzle = await withTaskGroup(of: SudokuPuzzle.self) { group in
@@ -201,7 +281,8 @@ class SudokuStore: ObservableObject {
         self.puzzleId = fallbackPuzzle.id
         resetGameState()
         isLoading = false
-        print("Created fallback puzzle with \(fallbackPuzzle.grid.flatMap { $0 }.compactMap { $0 }.count) filled cells")
+        errorMessage = nil // Clear the "generating" message
+        print("✅ Created fallback puzzle with \(fallbackPuzzle.grid.flatMap { $0 }.compactMap { $0 }.count) filled cells")
     }
     
     func loadCustomPuzzle(customGrid: SudokuGrid, customSolution: SudokuGrid? = nil) {

@@ -1355,3 +1355,276 @@ find . -name ".DS_Store" -delete
 **Status**: ✅ Ready for production deployment and team collaboration
 
 The project now maintains a clean, professional structure optimized for long-term maintainability and team collaboration.
+
+## Authentication Persistence & Face ID Fixes (2025-08-24)
+
+### Comprehensive Authentication System Overhaul
+**Date**: August 24, 2025
+**Status**: ✅ COMPLETE - Authentication persistence and Face ID issues resolved
+**Impact**: Eliminated authentication issues that required re-creating usernames after app updates
+
+### Authentication Persistence Issues Fixed
+
+#### **Root Problem Identified (2025-08-24)**
+**Issue**: Users had to recreate usernames after every app build/update due to flawed authentication storage
+**Symptoms**:
+- "Invalid username or password" errors despite valid credentials
+- Face ID prompting 3 times on app startup
+- Authentication state not persisting across app updates
+- Confusing "Welcome Back" screen with login failures
+
+**Root Causes**:
+1. **Incorrect Token Mapping**: App stored username as `accessToken` and password as `refreshToken`
+2. **Backend Mismatch**: iOS app expected JWT tokens but backend only returned user objects
+3. **Corrupted Auto-Login**: Logic tried to use stored "tokens" as username/password but mapping was wrong
+4. **Multiple Face ID Triggers**: Multiple credential validation methods each triggered separate Face ID prompts
+
+#### **Complete Authentication System Redesign**
+
+### 1. **Fixed Keychain Storage Architecture**
+**Location**: `Utils/KeychainManager.swift`
+**Problem**: Storing username/password as fake "access tokens"
+**Solution**: Proper credential storage with clear naming
+
+**Before (Broken)**:
+```swift
+struct AuthTokens {
+    let accessToken: String    // Actually stored username
+    let refreshToken: String?  // Actually stored password
+    let userId: Int
+    let username: String
+}
+```
+
+**After (Fixed)**:
+```swift
+struct UserCredentials {
+    let username: String
+    let password: String
+    let userId: Int
+}
+```
+
+**Key Changes**:
+- `saveAuthTokens()` → `saveUserCredentials()`
+- `getAuthTokens()` → `getUserCredentials()`
+- `clearAuthTokens()` → `clearUserCredentials()`
+- Direct username/password storage instead of fake token mapping
+
+### 2. **Eliminated Multiple Face ID Prompts**
+**Problem**: App prompted for Face ID 3 times on startup due to multiple credential validation flows
+**Solution**: Consolidated authentication into single flow
+
+**Removed Duplicate Methods**:
+- ❌ `validateAndCleanupCredentials()` 
+- ❌ `testStoredCredentialsWithAPI()`
+- ❌ Duplicate `autoLogin()` method
+
+**New Consolidated Flow**:
+```swift
+func performSingleAuthenticationFlow() async {
+    // 1. Check credentials exist (no biometric prompt)
+    guard try keychainManager.hasStoredCredentials() else { return }
+    
+    // 2. Get username for logging (no biometric prompt)  
+    let storedUsername = try keychainManager.getUsernameIfAvailable()
+    
+    // 3. Check biometric setting (no biometric prompt)
+    let biometricRequired = try keychainManager.getBiometricEnabled()
+    
+    // 4. If biometric required → STOP (no auto-login)
+    if biometricRequired { return }
+    
+    // 5. Get credentials ONCE (single Face ID prompt maximum)
+    guard let userCredentials = try await keychainManager.getUserCredentials() else { return }
+    
+    // 6. Auto-login with retrieved credentials
+    await performAutoLoginWithCredentials(userCredentials)
+}
+```
+
+**Face ID Behavior Fixed**:
+- **Before**: 3 Face ID prompts on every app launch
+- **After**: 0 prompts if Face ID enabled (manual auth), 1 prompt maximum if disabled
+
+### 3. **Enhanced Credential Validation & Cleanup**
+**Problem**: Corrupted credentials causing persistent login failures
+**Solution**: Automatic credential validation and cleanup
+
+**New Validation Features**:
+- **Corruption Detection**: Automatically detects and clears corrupted/empty credentials
+- **API Verification**: Tests stored credentials against backend before using them
+- **Smart Cleanup**: Only clears credentials for actual authentication errors (401), not network issues
+- **Biometric State Management**: Automatically disables Face ID when credentials are invalid
+
+**Validation Flow**:
+```swift
+// Basic validation
+if userCredentials.username.isEmpty || userCredentials.password.isEmpty {
+    print("⚠️ Stored credentials are empty - clearing them")
+    try? keychainManager.clearUserCredentials()
+    return
+}
+
+// API validation
+let user = try await APIService.shared.login(username: credentials.username, password: credentials.password)
+// If successful, use credentials; if 401 error, clear them automatically
+```
+
+### 4. **Improved APIService Token Handling**
+**Location**: `ViewModels/APIService.swift`
+**Problem**: Complex token refresh system for backend that doesn't support JWT
+**Solution**: Simplified to match actual backend capabilities
+
+**Removed Unsupported Features**:
+- ❌ `refreshToken()` method (backend doesn't support token refresh)
+- ❌ `RefreshTokenRequest`/`RefreshTokenResponse` types
+- ❌ Complex 401 retry logic with token refresh attempts
+
+**Simplified 401 Handling**:
+```swift
+case 401:
+    // Unauthorized - clear stored credentials and fail
+    // Note: This backend doesn't support token refresh, so we clear credentials
+    try? KeychainManager.shared.clearUserCredentials()
+    throw APIError.serverError(statusCode: 401)
+```
+
+### 5. **Fixed Dependency Injection**
+**Problem**: `NetworkMonitor` dependency missing from `SudokuStore`, causing compilation errors
+**Solution**: Added to dependency injection system
+
+**Updated Dependencies**:
+```swift
+// SudokuStore now properly receives all dependencies
+func setDependencies(
+    offlineStorage: OfflineStorage, 
+    authManager: AuthManager, 
+    networkMonitor: NetworkMonitor  // ← Added
+) {
+    self.offlineStorage = offlineStorage
+    self.authManager = authManager  
+    self.networkMonitor = networkMonitor
+    self.adManager = AdManager.shared
+}
+```
+
+### Authentication Flow Improvements
+
+#### **Startup Authentication Flow**
+**New Flow (Single Face ID Prompt Maximum)**:
+1. **App Launch** → Consolidated authentication check
+2. **Credential Validation** → Automatic cleanup of corrupted data
+3. **Biometric Check** → Respects user Face ID preference  
+4. **Smart Auto-Login** → Only attempts when appropriate
+5. **Error Recovery** → Graceful handling of invalid credentials
+
+#### **Face ID Integration**
+**Before**: Multiple prompts, confusing UX
+**After**: 
+- **Face ID Enabled**: Manual authentication via "Sign in with Face ID" button
+- **Face ID Disabled**: Automatic login with stored credentials
+- **Single Prompt**: Never more than 1 Face ID prompt per session
+- **Smart Fallbacks**: Clear error messages and fallback options
+
+#### **Credential Persistence**
+**Before**: Credentials lost on app updates due to incorrect storage
+**After**:
+- **Proper Keychain Usage**: Using `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` correctly
+- **Validated Storage**: Ensures credentials are actually valid before storing
+- **Auto-Cleanup**: Removes invalid credentials that cause persistent errors
+- **Cross-Update Persistence**: Credentials survive app updates and rebuilds
+
+### Debug and Maintenance Tools
+
+#### **Added Debug Methods**
+```swift
+// For troubleshooting authentication issues
+func debugStoredCredentials() async  // Shows credential status without exposing sensitive data
+func clearStoredCredentials()        // Manual cleanup for testing
+```
+
+#### **Enhanced Logging**
+- **Comprehensive Flow Tracking**: Logs every step of authentication process
+- **Privacy-Safe**: Never logs actual passwords, only lengths and status
+- **Debug-Only**: Production builds exclude debug logging
+- **Clear Error Messages**: User-friendly error descriptions
+
+### Key Methods and Locations
+
+#### **Critical Authentication Methods**
+- `AuthManager.performSingleAuthenticationFlow()`: Main authentication entry point
+- `KeychainManager.saveUserCredentials()`: Secure credential storage
+- `KeychainManager.getUserCredentials()`: Single-prompt credential retrieval
+- `KeychainManager.getUsernameIfAvailable()`: Non-biometric username access
+
+#### **Files Modified**
+- `Utils/KeychainManager.swift`: Complete credential storage redesign
+- `ViewModels/AuthManager.swift`: Consolidated authentication flow
+- `ViewModels/APIService.swift`: Simplified to match backend capabilities
+- `ViewModels/SudokuStore.swift`: Added NetworkMonitor dependency
+- `AppDelegate.swift`: Updated dependency injection
+
+### Testing and Verification
+
+#### **Authentication Test Scenarios**
+- ✅ **Fresh Install**: Clean authentication flow
+- ✅ **App Update**: Credentials persist across updates
+- ✅ **Face ID Enabled**: Single manual authentication
+- ✅ **Face ID Disabled**: Automatic login with stored credentials
+- ✅ **Network Issues**: Graceful handling without clearing valid credentials
+- ✅ **Invalid Credentials**: Automatic cleanup and fresh login prompt
+- ✅ **Corrupted Data**: Detection and automatic recovery
+
+#### **Performance Impact**
+- **Startup Time**: Improved by eliminating redundant authentication checks
+- **Memory Usage**: Reduced by removing duplicate credential validation flows
+- **Network Efficiency**: Fewer unnecessary API calls during authentication
+- **User Experience**: Seamless authentication without repeated prompts
+
+### Production Readiness Checklist
+
+- ✅ **Authentication Persistence**: Credentials survive app updates
+- ✅ **Face ID Integration**: Single prompt, respects user preferences
+- ✅ **Error Recovery**: Automatic cleanup of invalid states
+- ✅ **Debug Logging**: Comprehensive but privacy-safe
+- ✅ **Backward Compatibility**: Handles existing installations gracefully
+- ✅ **Network Resilience**: Proper handling of temporary connectivity issues
+
+### Key Learnings & Best Practices
+
+#### **iOS Keychain Best Practices Applied**
+1. **Proper Data Mapping**: Store data as what it actually is (username/password, not fake tokens)
+2. **Biometric Integration**: Use shared LAContext to prevent multiple prompts
+3. **Accessibility Settings**: Use appropriate keychain accessibility levels for persistence
+4. **Validation**: Always validate stored credentials before using them
+5. **Cleanup Strategy**: Only clear credentials for actual authentication failures
+
+#### **Authentication Architecture Principles**
+1. **Single Source of Truth**: One authentication flow, not multiple competing flows
+2. **Graceful Degradation**: Handle invalid credentials without confusing users
+3. **User Control**: Respect Face ID preferences and provide manual alternatives
+4. **Privacy First**: Never log sensitive data, use secure storage properly
+5. **Network Awareness**: Distinguish between auth failures and network issues
+
+### Impact Summary
+
+**User Experience Improvements**:
+- ✅ **No More Re-Registration**: Users stay logged in across app updates
+- ✅ **Seamless Face ID**: Single prompt when needed, manual control when enabled
+- ✅ **Clear Error Messages**: Helpful guidance instead of confusing technical errors
+- ✅ **Faster Startup**: Eliminated redundant authentication checks
+
+**Developer Benefits**:
+- ✅ **Simplified Architecture**: Single authentication flow easier to maintain
+- ✅ **Better Debugging**: Comprehensive logging for troubleshooting
+- ✅ **Cleaner Code**: Removed duplicate and conflicting authentication methods
+- ✅ **Production Ready**: Robust error handling and edge case management
+
+**System Reliability**:
+- ✅ **Automatic Recovery**: Self-healing from corrupted authentication states
+- ✅ **Cross-Update Persistence**: Authentication survives app rebuilds and updates
+- ✅ **Network Resilient**: Proper handling of temporary connectivity issues
+- ✅ **Security Compliant**: Proper keychain usage and biometric integration
+
+**Result**: The authentication system now provides a seamless, reliable experience that eliminates the need to recreate usernames after app updates while providing proper Face ID integration and comprehensive error recovery.

@@ -11,10 +11,9 @@ class KeychainManager {
     
     // MARK: - Keychain Keys
     private struct Keys {
-        static let accessToken = "com.sudokumaster.accessToken"
-        static let refreshToken = "com.sudokumaster.refreshToken"
-        static let userId = "com.sudokumaster.userId"
         static let username = "com.sudokumaster.username"
+        static let password = "com.sudokumaster.password"
+        static let userId = "com.sudokumaster.userId"
         static let biometricEnabled = "com.sudokumaster.biometricEnabled"
     }
     
@@ -39,15 +38,32 @@ class KeychainManager {
     }
     
     func hasStoredCredentials() throws -> Bool {
-        // Check if we have the essential credentials stored (without triggering biometric auth)
-        let query: [String: Any] = [
+        // Check if we have both username and password stored (without triggering biometric auth)
+        let usernameQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: Keys.username,
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
         
-        let status = SecItemCopyMatching(query as CFDictionary, nil)
-        return status == errSecSuccess
+        let passwordQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: Keys.password,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        
+        let usernameExists = SecItemCopyMatching(usernameQuery as CFDictionary, nil) == errSecSuccess
+        let passwordExists = SecItemCopyMatching(passwordQuery as CFDictionary, nil) == errSecSuccess
+        
+        return usernameExists && passwordExists
+    }
+    
+    func getUsernameIfAvailable() throws -> String? {
+        // Get username without triggering biometric auth (username is never biometric-protected)
+        guard let data = try getFromKeychain(key: Keys.username),
+              let username = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return username
     }
     
     func authenticateWithBiometrics() async throws -> Bool {
@@ -84,36 +100,27 @@ class KeychainManager {
     
     // MARK: - Token Storage with Biometric Protection
     
-    func saveAuthTokens(accessToken: String, refreshToken: String?, userId: Int, username: String, requireBiometric: Bool = false) throws {
+    func saveUserCredentials(username: String, password: String, userId: Int, requireBiometric: Bool = false) throws {
         
-        // Save access token
+        // Save username
         try saveToKeychain(
-            key: Keys.accessToken,
-            data: accessToken.data(using: .utf8)!,
-            requireBiometric: requireBiometric
+            key: Keys.username,
+            data: username.data(using: .utf8)!,
+            requireBiometric: false // Username doesn't need biometric protection
         )
         
-        // Save refresh token if provided
-        if let refreshToken = refreshToken {
-            try saveToKeychain(
-                key: Keys.refreshToken,
-                data: refreshToken.data(using: .utf8)!,
-                requireBiometric: requireBiometric
-            )
-        }
+        // Save password with biometric protection if requested
+        try saveToKeychain(
+            key: Keys.password,
+            data: password.data(using: .utf8)!,
+            requireBiometric: requireBiometric
+        )
         
         // Save user ID
         try saveToKeychain(
             key: Keys.userId,
             data: String(userId).data(using: .utf8)!,
             requireBiometric: false // User ID doesn't need biometric protection
-        )
-        
-        // Save username
-        try saveToKeychain(
-            key: Keys.username,
-            data: username.data(using: .utf8)!,
-            requireBiometric: false
         )
         
         // Save biometric preference
@@ -123,40 +130,37 @@ class KeychainManager {
             requireBiometric: false
         )
         
-        print("✅ Auth tokens saved to Keychain with biometric: \(requireBiometric)")
+        print("✅ User credentials saved to Keychain with biometric: \(requireBiometric)")
     }
     
-    func getAuthTokens() async throws -> AuthTokens? {
+    func getUserCredentials() async throws -> UserCredentials? {
         do {
+            print("🔐 getUserCredentials() called - creating LAContext")
+            
             // Create shared authentication context to avoid multiple biometric prompts
             let context = LAContext()
             context.localizedFallbackTitle = "Use Passcode"
             
-            // Retrieve tokens with shared context
-            guard let accessTokenData = try getFromKeychainWithContext(key: Keys.accessToken, context: context),
-                  let accessToken = String(data: accessTokenData, encoding: .utf8),
+            // Retrieve credentials with shared context
+            guard let usernameData = try getFromKeychainWithContext(key: Keys.username, context: context),
+                  let username = String(data: usernameData, encoding: .utf8),
+                  let passwordData = try getFromKeychainWithContext(key: Keys.password, context: context),
+                  let password = String(data: passwordData, encoding: .utf8),
                   let userIdData = try getFromKeychainWithContext(key: Keys.userId, context: context),
                   let userIdString = String(data: userIdData, encoding: .utf8),
-                  let userId = Int(userIdString),
-                  let usernameData = try getFromKeychainWithContext(key: Keys.username, context: context),
-                  let username = String(data: usernameData, encoding: .utf8) else {
-                print("⚠️ Could not retrieve all required authentication data from Keychain")
+                  let userId = Int(userIdString) else {
+                print("⚠️ Could not retrieve all required user credentials from Keychain")
                 return nil
             }
             
-            // Refresh token is optional
-            let refreshTokenData = try? getFromKeychainWithContext(key: Keys.refreshToken, context: context)
-            let refreshToken = refreshTokenData.flatMap { String(data: $0, encoding: .utf8) }
-            
-            return AuthTokens(
-                accessToken: accessToken,
-                refreshToken: refreshToken,
-                userId: userId,
-                username: username
+            return UserCredentials(
+                username: username,
+                password: password,
+                userId: userId
             )
             
         } catch {
-            print("⚠️ Error getting auth tokens: \(error.localizedDescription)")
+            print("⚠️ Error getting user credentials: \(error.localizedDescription)")
             throw error
         }
     }
@@ -179,14 +183,13 @@ class KeychainManager {
     
     // MARK: - Clear Authentication Data
     
-    func clearAuthTokens() throws {
-        try deleteFromKeychain(key: Keys.accessToken)
-        try deleteFromKeychain(key: Keys.refreshToken)
-        try deleteFromKeychain(key: Keys.userId)
+    func clearUserCredentials() throws {
         try deleteFromKeychain(key: Keys.username)
+        try deleteFromKeychain(key: Keys.password)
+        try deleteFromKeychain(key: Keys.userId)
         try deleteFromKeychain(key: Keys.biometricEnabled)
         
-        print("✅ Auth tokens cleared from Keychain")
+        print("✅ User credentials cleared from Keychain")
     }
     
     // MARK: - Private Keychain Operations
@@ -291,11 +294,10 @@ class KeychainManager {
 
 // MARK: - Supporting Types
 
-struct AuthTokens {
-    let accessToken: String
-    let refreshToken: String?
-    let userId: Int
+struct UserCredentials {
     let username: String
+    let password: String
+    let userId: Int
 }
 
 enum KeychainError: Error, LocalizedError {

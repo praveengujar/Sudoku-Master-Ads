@@ -26,7 +26,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             await MainActor.run {
                 guard let self = self, let offlineStorage = self.offlineStorage else { return }
                 // Inject dependencies after async initialization
-                self.sudokuStore.setDependencies(offlineStorage: offlineStorage, authManager: self.authManager)
+                self.sudokuStore.setDependencies(offlineStorage: offlineStorage, authManager: self.authManager, networkMonitor: self.networkMonitor)
                 self.sudokuStore.setOfflineMode(isOffline: offlineStorage.isOfflineMode)
                 self.updateOfflineStatusBasedOnNetwork()
                 self.checkAllServicesInitialized()
