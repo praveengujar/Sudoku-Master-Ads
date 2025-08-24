@@ -1,9 +1,16 @@
 const express = require('express');
 const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
+
+// JWT Configuration
+const JWT_SECRET = process.env.JWT_SECRET || 'sudoku-master-secret-key-2025';
+const JWT_ACCESS_EXPIRY = process.env.JWT_ACCESS_EXPIRY || '15m'; // 15 minutes
+const JWT_REFRESH_EXPIRY = process.env.JWT_REFRESH_EXPIRY || '7d'; // 7 days
 
 // Middleware
 app.use(cors());
@@ -13,6 +20,71 @@ app.use(express.json());
 let users = [];
 let gameProgress = [];
 let userStats = [];
+let refreshTokens = []; // Store valid refresh tokens
+
+// JWT Helper Functions
+function generateAccessToken(user) {
+  return jwt.sign(
+    { 
+      id: user.id, 
+      username: user.username,
+      type: 'access' 
+    }, 
+    JWT_SECRET, 
+    { expiresIn: JWT_ACCESS_EXPIRY }
+  );
+}
+
+function generateRefreshToken(user) {
+  return jwt.sign(
+    { 
+      id: user.id, 
+      username: user.username,
+      type: 'refresh' 
+    }, 
+    JWT_SECRET, 
+    { expiresIn: JWT_REFRESH_EXPIRY }
+  );
+}
+
+function verifyToken(token, tokenType = 'access') {
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    if (decoded.type !== tokenType) {
+      throw new Error('Invalid token type');
+    }
+    return decoded;
+  } catch (error) {
+    throw new Error('Invalid or expired token');
+  }
+}
+
+// JWT Authentication Middleware
+function authenticateToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+
+  if (!token) {
+    return res.status(401).json({ error: 'Access token required' });
+  }
+
+  try {
+    const user = verifyToken(token, 'access');
+    req.user = user;
+    next();
+  } catch (error) {
+    return res.status(403).json({ error: 'Invalid or expired access token' });
+  }
+}
+
+// Password hashing helpers
+async function hashPassword(password) {
+  return await bcrypt.hash(password, 12);
+}
+
+async function comparePassword(password, hashedPassword) {
+  return await bcrypt.compare(password, hashedPassword);
+}
 
 // Helper function to generate Sudoku puzzle
 function generateSudokuPuzzle(difficulty) {
@@ -192,63 +264,180 @@ app.get('/api', (req, res) => {
 });
 
 // Authentication endpoints
-app.post('/api/users/register', (req, res) => {
-  const { username, password } = req.body;
-  
-  if (!username || !password) {
-    return res.status(400).json({ error: 'Username and password are required' });
+app.post('/api/users/register', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password are required' });
+    }
+
+    // Check if user already exists
+    if (users.find(u => u.username === username)) {
+      return res.status(400).json({ error: 'Username already exists' });
+    }
+
+    // Hash the password
+    const hashedPassword = await hashPassword(password);
+
+    const newUser = {
+      id: users.length + 1,
+      username: username,
+      theme: 'default'
+    };
+
+    users.push({ ...newUser, password: hashedPassword });
+    
+    // Initialize user stats
+    userStats.push({
+      id: userStats.length + 1,
+      userId: newUser.id,
+      eloRating: 1200,
+      gamesPlayed: 0,
+      gamesWon: 0,
+      averageTimeSeconds: 0
+    });
+
+    // Generate JWT tokens
+    const accessToken = generateAccessToken(newUser);
+    const refreshToken = generateRefreshToken(newUser);
+    
+    // Store refresh token
+    refreshTokens.push({
+      token: refreshToken,
+      userId: newUser.id,
+      createdAt: new Date()
+    });
+
+    console.log(`✅ User registered: ${username}`);
+
+    res.json({
+      user: newUser,
+      accessToken,
+      refreshToken,
+      expiresIn: JWT_ACCESS_EXPIRY
+    });
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ error: 'Registration failed' });
   }
-
-  // Check if user already exists
-  if (users.find(u => u.username === username)) {
-    return res.status(400).json({ error: 'Username already exists' });
-  }
-
-  const newUser = {
-    id: users.length + 1,
-    username: username,
-    theme: 'default'
-  };
-
-  users.push({ ...newUser, password });
-  
-  // Initialize user stats
-  userStats.push({
-    id: userStats.length + 1,
-    userId: newUser.id,
-    eloRating: 1200,
-    gamesPlayed: 0,
-    gamesWon: 0,
-    averageTimeSeconds: 0
-  });
-
-  res.json(newUser);
 });
 
-app.post('/api/users/login', (req, res) => {
-  const { username, password } = req.body;
-  
-  const user = users.find(u => u.username === username && u.password === password);
-  if (!user) {
-    return res.status(401).json({ error: 'Invalid credentials' });
-  }
+app.post('/api/users/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password are required' });
+    }
+    
+    const user = users.find(u => u.username === username);
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
 
-  const { password: _, ...userWithoutPassword } = user;
-  res.json(userWithoutPassword);
+    // Compare password with hashed password
+    const isPasswordValid = await comparePassword(password, user.password);
+    if (!isPasswordValid) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Generate JWT tokens
+    const { password: _, ...userWithoutPassword } = user;
+    const accessToken = generateAccessToken(userWithoutPassword);
+    const refreshToken = generateRefreshToken(userWithoutPassword);
+    
+    // Store refresh token
+    refreshTokens.push({
+      token: refreshToken,
+      userId: user.id,
+      createdAt: new Date()
+    });
+
+    console.log(`✅ User logged in: ${username}`);
+
+    res.json({
+      user: userWithoutPassword,
+      accessToken,
+      refreshToken,
+      expiresIn: JWT_ACCESS_EXPIRY
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Login failed' });
+  }
 });
 
-app.get('/api/users/me', (req, res) => {
-  // For simplicity, return the first user or a default user
-  if (users.length > 0) {
-    const { password: _, ...userWithoutPassword } = users[0];
+// Token refresh endpoint
+app.post('/api/users/refresh', (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+    
+    if (!refreshToken) {
+      return res.status(401).json({ error: 'Refresh token required' });
+    }
+
+    // Check if refresh token exists in our storage
+    const storedToken = refreshTokens.find(t => t.token === refreshToken);
+    if (!storedToken) {
+      return res.status(403).json({ error: 'Invalid refresh token' });
+    }
+
+    // Verify the refresh token
+    const decoded = verifyToken(refreshToken, 'refresh');
+    
+    // Find the user
+    const user = users.find(u => u.id === decoded.id);
+    if (!user) {
+      return res.status(403).json({ error: 'User not found' });
+    }
+
+    // Generate new access token
+    const { password: _, ...userWithoutPassword } = user;
+    const newAccessToken = generateAccessToken(userWithoutPassword);
+
+    console.log(`🔄 Token refreshed for user: ${user.username}`);
+
+    res.json({
+      accessToken: newAccessToken,
+      expiresIn: JWT_ACCESS_EXPIRY
+    });
+  } catch (error) {
+    console.error('Token refresh error:', error);
+    res.status(403).json({ error: 'Invalid or expired refresh token' });
+  }
+});
+
+app.get('/api/users/me', authenticateToken, (req, res) => {
+  try {
+    const user = users.find(u => u.id === req.user.id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const { password: _, ...userWithoutPassword } = user;
     res.json(userWithoutPassword);
-  } else {
-    res.status(401).json({ error: 'Not authenticated' });
+  } catch (error) {
+    console.error('Get user error:', error);
+    res.status(500).json({ error: 'Failed to get user information' });
   }
 });
 
 app.post('/api/users/logout', (req, res) => {
-  res.json({ message: 'Logged out successfully' });
+  try {
+    const { refreshToken } = req.body;
+    
+    if (refreshToken) {
+      // Remove refresh token from storage
+      refreshTokens = refreshTokens.filter(t => t.token !== refreshToken);
+      console.log('🔓 User logged out and refresh token removed');
+    }
+    
+    res.json({ message: 'Logged out successfully' });
+  } catch (error) {
+    console.error('Logout error:', error);
+    res.json({ message: 'Logged out successfully' }); // Always succeed logout
+  }
 });
 
 // Sudoku game endpoints
@@ -285,45 +474,63 @@ app.post('/api/sudoku/solve', (req, res) => {
   res.json({ solution });
 });
 
-app.post('/api/sudoku/save-progress', (req, res) => {
-  const { userId, puzzleId, currentGrid, isCompleted, timeSpentSeconds } = req.body;
-  
-  const progress = {
-    id: gameProgress.length + 1,
-    userId,
-    puzzleId,
-    currentGrid,
-    isCompleted,
-    timeSpentSeconds,
-    createdAt: new Date().toISOString()
-  };
+app.post('/api/sudoku/save-progress', authenticateToken, (req, res) => {
+  try {
+    const { puzzleId, currentGrid, isCompleted, timeSpentSeconds } = req.body;
+    const userId = req.user.id; // Get userId from JWT token
+    
+    const progress = {
+      id: gameProgress.length + 1,
+      userId,
+      puzzleId,
+      currentGrid,
+      isCompleted,
+      timeSpentSeconds,
+      createdAt: new Date().toISOString()
+    };
 
-  gameProgress.push(progress);
-  
-  // Update user stats if completed
-  if (isCompleted) {
-    const stats = userStats.find(s => s.userId === userId);
-    if (stats) {
-      stats.gamesPlayed += 1;
-      stats.gamesWon += 1;
-      stats.averageTimeSeconds = Math.round(
-        (stats.averageTimeSeconds * (stats.gamesPlayed - 1) + timeSpentSeconds) / stats.gamesPlayed
-      );
+    gameProgress.push(progress);
+    
+    // Update user stats if completed
+    if (isCompleted) {
+      const stats = userStats.find(s => s.userId === userId);
+      if (stats) {
+        stats.gamesPlayed += 1;
+        stats.gamesWon += 1;
+        stats.averageTimeSeconds = Math.round(
+          (stats.averageTimeSeconds * (stats.gamesPlayed - 1) + timeSpentSeconds) / stats.gamesPlayed
+        );
+      }
     }
-  }
 
-  res.json(progress);
+    console.log(`💾 Progress saved for user ${req.user.username}: ${isCompleted ? 'completed' : 'in progress'}`);
+    res.json(progress);
+  } catch (error) {
+    console.error('Save progress error:', error);
+    res.status(500).json({ error: 'Failed to save progress' });
+  }
 });
 
-app.get('/api/sudoku/user-stats/:userId', (req, res) => {
-  const userId = parseInt(req.params.userId);
-  const stats = userStats.find(s => s.userId === userId);
-  
-  if (!stats) {
-    return res.status(404).json({ error: 'User stats not found' });
-  }
+app.get('/api/sudoku/user-stats/:userId', authenticateToken, (req, res) => {
+  try {
+    const userId = parseInt(req.params.userId);
+    
+    // Ensure user can only access their own stats
+    if (userId !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    
+    const stats = userStats.find(s => s.userId === userId);
+    
+    if (!stats) {
+      return res.status(404).json({ error: 'User stats not found' });
+    }
 
-  res.json(stats);
+    res.json(stats);
+  } catch (error) {
+    console.error('Get user stats error:', error);
+    res.status(500).json({ error: 'Failed to get user stats' });
+  }
 });
 
 // Start server

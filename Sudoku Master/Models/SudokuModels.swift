@@ -181,6 +181,27 @@ struct User: Identifiable, Codable {
     var theme: ThemeOption
 }
 
+// JWT Authentication Response models
+struct AuthResponse: Codable {
+    let user: User
+    let accessToken: String
+    let refreshToken: String
+    let expiresIn: String
+}
+
+struct RefreshTokenRequest: Codable {
+    let refreshToken: String
+}
+
+struct RefreshTokenResponse: Codable {
+    let accessToken: String
+    let expiresIn: String
+}
+
+struct LogoutRequest: Codable {
+    let refreshToken: String
+}
+
 // User statistics
 struct UserStats: Identifiable, Codable {
     let id: Int

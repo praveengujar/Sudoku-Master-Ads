@@ -30,6 +30,11 @@ class APIService: ObservableObject {
     private let cacheTimeout: TimeInterval = 300 // 5 minutes
     private let maxCacheSize = 50
     
+    // JWT Token Management
+    private var currentAccessToken: String?
+    private var tokenRefreshTask: Task<Void, Never>?
+    private let keychainManager = KeychainManager.shared
+    
     private init() {
         // Optimized URLSession configuration for better performance
         let config = URLSessionConfiguration.default
@@ -73,60 +78,75 @@ class APIService: ObservableObject {
         networkMonitor.start(queue: networkQueue)
     }
     
-    // MARK: - Simple Authentication (No Token Refresh)
-    // Note: This backend uses simple username/password auth without JWT tokens
-    
-    // MARK: - Authentication Methods (Optimized)
+    // MARK: - JWT Authentication Methods
     
     func login(username: String, password: String) async throws -> User {
         let endpoint = "\(baseURL)/users/login"
-        let body: [String: String] = ["username": username, "password": password]
+        let body = ["username": username, "password": password]
         
-        // Try simplified approach first for login
-        do {
-            return try await performSimpleRequest(
-                endpoint: endpoint,
-                method: "POST",
-                body: body
-            )
-        } catch {
-            print("🔄 Simple request failed, trying optimized request: \(error)")
-            // Fallback to optimized request
-            return try await performOptimizedRequest(
-                endpoint: endpoint,
-                method: "POST",
-                body: body,
-                cachePolicy: .reloadIgnoringCacheData
-            )
-        }
+        // Login and get JWT tokens
+        let authResponse: AuthResponse = try await performOptimizedRequest(
+            endpoint: endpoint,
+            method: "POST",
+            body: body,
+            cachePolicy: .reloadIgnoringCacheData
+        )
+        
+        // Store JWT tokens in keychain
+        try keychainManager.saveAuthTokens(
+            accessToken: authResponse.accessToken,
+            refreshToken: authResponse.refreshToken,
+            expiresIn: authResponse.expiresIn,
+            requireBiometric: false // Will be set later if biometric is enabled
+        )
+        
+        // Store current access token for immediate use
+        currentAccessToken = authResponse.accessToken
+        
+        // Start token refresh monitoring
+        startTokenRefreshMonitoring()
+        
+        print("✅ JWT login successful for user: \(authResponse.user.username)")
+        return authResponse.user
     }
     
     func register(username: String, password: String) async throws -> User {
         let endpoint = "\(baseURL)/users/register"
-        let body: [String: String] = ["username": username, "password": password]
+        let body = ["username": username, "password": password]
         
-        // Try simplified approach first for registration
-        do {
-            return try await performSimpleRequest(
-                endpoint: endpoint,
-                method: "POST",
-                body: body
-            )
-        } catch {
-            print("🔄 Simple registration failed, trying optimized request: \(error)")
-            // Fallback to optimized request
-            return try await performOptimizedRequest(
-                endpoint: endpoint,
-                method: "POST",
-                body: body,
-                cachePolicy: .reloadIgnoringCacheData
-            )
-        }
+        // Register and get JWT tokens
+        let authResponse: AuthResponse = try await performOptimizedRequest(
+            endpoint: endpoint,
+            method: "POST",
+            body: body,
+            cachePolicy: .reloadIgnoringCacheData
+        )
+        
+        // Store JWT tokens in keychain
+        try keychainManager.saveAuthTokens(
+            accessToken: authResponse.accessToken,
+            refreshToken: authResponse.refreshToken,
+            expiresIn: authResponse.expiresIn,
+            requireBiometric: false
+        )
+        
+        // Store current access token for immediate use
+        currentAccessToken = authResponse.accessToken
+        
+        // Start token refresh monitoring
+        startTokenRefreshMonitoring()
+        
+        print("✅ JWT registration successful for user: \(authResponse.user.username)")
+        return authResponse.user
     }
     
     func getCurrentUser() async throws -> User {
         let endpoint = "\(baseURL)/users/me"
-        return try await performOptimizedRequest(
+        
+        // Ensure we have a valid access token
+        try await ensureValidAccessToken()
+        
+        return try await performAuthenticatedRequest(
             endpoint: endpoint,
             method: "GET",
             body: EmptyRequest(),
@@ -137,15 +157,177 @@ class APIService: ObservableObject {
     
     func logout() async throws {
         let endpoint = "\(baseURL)/users/logout"
+        
+        // Get refresh token for logout request
+        let refreshToken = try await keychainManager.getAuthTokens()?.refreshToken ?? ""
+        let body = LogoutRequest(refreshToken: refreshToken)
+        
+        // Call logout endpoint with refresh token
         let _: EmptyResponse = try await performOptimizedRequest(
             endpoint: endpoint,
             method: "POST",
-            body: EmptyRequest(),
+            body: body,
             cachePolicy: .reloadIgnoringCacheData
         )
         
+        // Clear stored tokens
+        try keychainManager.clearAuthTokens()
+        currentAccessToken = nil
+        
+        // Cancel token refresh monitoring
+        tokenRefreshTask?.cancel()
+        tokenRefreshTask = nil
+        
         // Clear cache on logout
         cache.removeAllObjects()
+        
+        print("✅ JWT logout successful")
+    }
+    
+    // MARK: - JWT Token Management
+    
+    private func startTokenRefreshMonitoring() {
+        // Cancel existing task if any
+        tokenRefreshTask?.cancel()
+        
+        tokenRefreshTask = Task {
+            while !Task.isCancelled {
+                do {
+                    // Check every 5 minutes if token needs refreshing
+                    try await Task.sleep(nanoseconds: 300_000_000_000) // 5 minutes
+                    
+                    if let tokens = try await keychainManager.getAuthTokens() {
+                        if tokens.willExpireSoon && !tokens.isExpired {
+                            print("🔄 Access token will expire soon, refreshing...")
+                            try await refreshAccessToken()
+                        }
+                    }
+                } catch {
+                    if !Task.isCancelled {
+                        print("⚠️ Token refresh monitoring error: \(error)")
+                    }
+                    break
+                }
+            }
+        }
+    }
+    
+    private func ensureValidAccessToken() async throws {
+        // If we have a current access token, try to use it
+        if let token = currentAccessToken {
+            return
+        }
+        
+        // Try to get token from keychain
+        guard let tokens = try await keychainManager.getAuthTokens() else {
+            throw APIError.authenticationRequired
+        }
+        
+        // If token is expired, refresh it
+        if tokens.isExpired {
+            try await refreshAccessToken()
+        } else {
+            currentAccessToken = tokens.accessToken
+        }
+    }
+    
+    private func refreshAccessToken() async throws {
+        guard let tokens = try await keychainManager.getAuthTokens() else {
+            throw APIError.authenticationRequired
+        }
+        
+        let endpoint = "\(baseURL)/users/refresh"
+        let body = RefreshTokenRequest(refreshToken: tokens.refreshToken)
+        
+        let refreshResponse: RefreshTokenResponse = try await performOptimizedRequest(
+            endpoint: endpoint,
+            method: "POST",
+            body: body,
+            cachePolicy: .reloadIgnoringCacheData
+        )
+        
+        // Update stored access token with new one, keep refresh token
+        try keychainManager.saveAuthTokens(
+            accessToken: refreshResponse.accessToken,
+            refreshToken: tokens.refreshToken,
+            expiresIn: refreshResponse.expiresIn,
+            requireBiometric: try keychainManager.getBiometricEnabled()
+        )
+        
+        // Update current access token
+        currentAccessToken = refreshResponse.accessToken
+        
+        print("✅ Access token refreshed successfully")
+    }
+    
+    private func performAuthenticatedRequest<T: Decodable, U: Encodable>(
+        endpoint: String,
+        method: String,
+        body: U,
+        cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy,
+        cacheTimeout: TimeInterval? = nil
+    ) async throws -> T {
+        
+        // Ensure we have a valid access token
+        try await ensureValidAccessToken()
+        
+        guard let accessToken = currentAccessToken else {
+            throw APIError.authenticationRequired
+        }
+        
+        // Create request with Authorization header
+        var request = URLRequest(url: URL(string: endpoint)!)
+        request.httpMethod = method
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.cachePolicy = cachePolicy
+        
+        // Add body if not empty request
+        if !(body is EmptyRequest) {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            request.httpBody = try encoder.encode(body)
+        }
+        
+        // Perform the request
+        let (data, response) = try await session.data(for: request)
+        
+        // Handle HTTP errors
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        
+        // Handle 401 - token might be expired, try to refresh once
+        if httpResponse.statusCode == 401 {
+            print("🔄 Received 401, attempting token refresh")
+            try await refreshAccessToken()
+            
+            // Retry request with new token
+            request.setValue("Bearer \(currentAccessToken!)", forHTTPHeaderField: "Authorization")
+            let (retryData, retryResponse) = try await session.data(for: request)
+            
+            guard let retryHttpResponse = retryResponse as? HTTPURLResponse else {
+                throw APIError.invalidResponse
+            }
+            
+            if retryHttpResponse.statusCode >= 400 {
+                throw APIError.serverError(statusCode: retryHttpResponse.statusCode)
+            }
+            
+            // Decode retry response
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            return try decoder.decode(T.self, from: retryData)
+        }
+        
+        if httpResponse.statusCode >= 400 {
+            throw APIError.serverError(statusCode: httpResponse.statusCode)
+        }
+        
+        // Decode response
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(T.self, from: data)
     }
     
     // MARK: - Sudoku Game Methods (Optimized)
@@ -560,6 +742,7 @@ enum APIError: Error, LocalizedError {
     case networkError(error: Error)
     case rateLimited
     case cacheDataNotAvailable
+    case authenticationRequired
     
     var errorDescription: String? {
         switch self {
@@ -577,6 +760,8 @@ enum APIError: Error, LocalizedError {
             return "Rate limited. Please try again later."
         case .cacheDataNotAvailable:
             return "Cached data not available"
+        case .authenticationRequired:
+            return "Authentication required. Please log in again."
         }
     }
     

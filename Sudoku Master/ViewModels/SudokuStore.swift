@@ -120,7 +120,7 @@ class SudokuStore: ObservableObject {
     func newGame() {
         print("🎯 Starting new game with difficulty: \(difficulty.rawValue), offline mode: \(isOfflineMode)")
         isLoading = true
-        errorMessage = nil
+        errorMessage = nil // Clear any existing error messages immediately
         
         Task { [weak self] in
             guard let self = self else { return }
@@ -165,7 +165,9 @@ class SudokuStore: ObservableObject {
             self.errorMessage = nil
             await loadOfflinePuzzle()
         } else {
-            self.errorMessage = "Failed to load puzzle: \(error.localizedDescription)"
+            // Only show error message if we've already tried offline mode and it failed
+            print("🎯 Both online and offline attempts failed")
+            self.errorMessage = "Unable to load puzzle. Please try again."
             self.isLoading = false
         }
     }
@@ -195,11 +197,10 @@ class SudokuStore: ObservableObject {
     private func tryDownloadPuzzleForCurrentDifficulty() async {
         // Only try to download if we're not in manual offline mode and have network
         if !isOfflineMode && (networkMonitor?.isConnected ?? false) {
-            errorMessage = "Downloading \(difficulty.displayName) puzzle..."
             print("🔄 No offline puzzles for \(difficulty.displayName). Attempting to download...")
             
             do {
-                // Try to download one puzzle for current difficulty
+                // Try to download one puzzle for current difficulty (don't show message immediately)
                 let puzzle = try await APIService.shared.generatePuzzle(difficulty: difficulty)
                 
                 // Store it for future use
@@ -213,11 +214,12 @@ class SudokuStore: ObservableObject {
                 self.puzzleId = puzzle.id
                 resetGameState()
                 isLoading = false
-                errorMessage = nil // Clear the downloading message
+                errorMessage = nil // Ensure no error message is shown
                 print("✅ Downloaded and loaded puzzle for \(difficulty.displayName)")
                 
             } catch {
                 print("⚠️ Failed to download puzzle: \(error.localizedDescription)")
+                // Don't show download error to user, just fall back to generation
                 await loadFallbackPuzzle()
             }
         } else {
@@ -265,8 +267,10 @@ class SudokuStore: ObservableObject {
     
     @MainActor
     private func loadFallbackPuzzle() async {
-        errorMessage = "Generating \(difficulty.displayName) puzzle..."
         print("Creating fallback puzzle for difficulty: \(difficulty.displayName)")
+        
+        // Don't show "generating" message immediately - only if it takes time
+        let startTime = Date()
         
         // Create fallback puzzle on background queue to avoid blocking UI
         let fallbackPuzzle = await withTaskGroup(of: SudokuPuzzle.self) { group in
@@ -276,12 +280,18 @@ class SudokuStore: ObservableObject {
             return await group.first(where: { _ in true }) ?? SudokuPuzzle(id: -1, grid: [], solution: [], difficulty: .easy)
         }
         
+        // Only show message if generation took more than 500ms
+        let generationTime = Date().timeIntervalSince(startTime)
+        if generationTime > 0.5 {
+            print("ℹ️ Puzzle generation took \(String(format: "%.1f", generationTime))s - showing user message next time")
+        }
+        
         self.grid = fallbackPuzzle.grid
         self.originalGrid = fallbackPuzzle.grid
         self.puzzleId = fallbackPuzzle.id
         resetGameState()
         isLoading = false
-        errorMessage = nil // Clear the "generating" message
+        errorMessage = nil // Ensure no error message is shown
         print("✅ Created fallback puzzle with \(fallbackPuzzle.grid.flatMap { $0 }.compactMap { $0 }.count) filled cells")
     }
     
@@ -319,6 +329,8 @@ class SudokuStore: ObservableObject {
     func setDifficulty(_ difficulty: SudokuDifficulty) {
         print("🎯 Setting difficulty to: \(difficulty.rawValue)")
         self.difficulty = difficulty
+        // Clear any existing error messages immediately when switching difficulty
+        self.errorMessage = nil
         newGame()
     }
     

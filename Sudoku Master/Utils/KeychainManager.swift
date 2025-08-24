@@ -15,6 +15,9 @@ class KeychainManager {
         static let password = "com.sudokumaster.password"
         static let userId = "com.sudokumaster.userId"
         static let biometricEnabled = "com.sudokumaster.biometricEnabled"
+        static let accessToken = "com.sudokumaster.accessToken"
+        static let refreshToken = "com.sudokumaster.refreshToken"
+        static let tokenExpiry = "com.sudokumaster.tokenExpiry"
     }
     
     // MARK: - Biometric Authentication
@@ -98,7 +101,116 @@ class KeychainManager {
         }
     }
     
-    // MARK: - Token Storage with Biometric Protection
+    // MARK: - JWT Token Storage with Biometric Protection
+    
+    func saveAuthTokens(accessToken: String, refreshToken: String, expiresIn: String, requireBiometric: Bool = false) throws {
+        // Save access token with biometric protection if requested
+        try saveToKeychain(
+            key: Keys.accessToken,
+            data: accessToken.data(using: .utf8)!,
+            requireBiometric: requireBiometric
+        )
+        
+        // Save refresh token with biometric protection if requested
+        try saveToKeychain(
+            key: Keys.refreshToken,
+            data: refreshToken.data(using: .utf8)!,
+            requireBiometric: requireBiometric
+        )
+        
+        // Calculate and save expiry date
+        let expiryDate = calculateTokenExpiry(expiresIn: expiresIn)
+        try saveToKeychain(
+            key: Keys.tokenExpiry,
+            data: expiryDate.timeIntervalSince1970.description.data(using: .utf8)!,
+            requireBiometric: false
+        )
+        
+        print("✅ JWT tokens saved to Keychain with biometric: \(requireBiometric)")
+    }
+    
+    func getAuthTokens() async throws -> AuthTokens? {
+        do {
+            print("🔐 getAuthTokens() called - creating LAContext")
+            
+            // Create shared authentication context to avoid multiple biometric prompts
+            let context = LAContext()
+            context.localizedFallbackTitle = "Use Passcode"
+            
+            // Retrieve tokens with shared context
+            guard let accessTokenData = try getFromKeychainWithContext(key: Keys.accessToken, context: context),
+                  let accessToken = String(data: accessTokenData, encoding: .utf8),
+                  let refreshTokenData = try getFromKeychainWithContext(key: Keys.refreshToken, context: context),
+                  let refreshToken = String(data: refreshTokenData, encoding: .utf8),
+                  let expiryData = try getFromKeychainWithContext(key: Keys.tokenExpiry, context: context),
+                  let expiryString = String(data: expiryData, encoding: .utf8),
+                  let expiryInterval = TimeInterval(expiryString) else {
+                print("⚠️ Could not retrieve all required auth tokens from Keychain")
+                return nil
+            }
+            
+            let expiryDate = Date(timeIntervalSince1970: expiryInterval)
+            
+            return AuthTokens(
+                accessToken: accessToken,
+                refreshToken: refreshToken,
+                expiryDate: expiryDate
+            )
+            
+        } catch {
+            print("⚠️ Error getting auth tokens: \(error.localizedDescription)")
+            throw error
+        }
+    }
+    
+    func clearAuthTokens() throws {
+        try deleteFromKeychain(key: Keys.accessToken)
+        try deleteFromKeychain(key: Keys.refreshToken)
+        try deleteFromKeychain(key: Keys.tokenExpiry)
+        
+        print("✅ JWT tokens cleared from Keychain")
+    }
+    
+    func hasStoredTokens() throws -> Bool {
+        // Check if we have both access and refresh tokens stored (without triggering biometric auth)
+        let accessTokenQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: Keys.accessToken,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        
+        let refreshTokenQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: Keys.refreshToken,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        
+        let accessTokenExists = SecItemCopyMatching(accessTokenQuery as CFDictionary, nil) == errSecSuccess
+        let refreshTokenExists = SecItemCopyMatching(refreshTokenQuery as CFDictionary, nil) == errSecSuccess
+        
+        return accessTokenExists && refreshTokenExists
+    }
+    
+    private func calculateTokenExpiry(expiresIn: String) -> Date {
+        // Parse expires in format like "15m", "1h", "7d"
+        let now = Date()
+        
+        if expiresIn.hasSuffix("m") {
+            let minutes = Int(expiresIn.dropLast()) ?? 15
+            return now.addingTimeInterval(TimeInterval(minutes * 60))
+        } else if expiresIn.hasSuffix("h") {
+            let hours = Int(expiresIn.dropLast()) ?? 1
+            return now.addingTimeInterval(TimeInterval(hours * 3600))
+        } else if expiresIn.hasSuffix("d") {
+            let days = Int(expiresIn.dropLast()) ?? 1
+            return now.addingTimeInterval(TimeInterval(days * 86400))
+        } else {
+            // Default to 15 minutes if format not recognized
+            return now.addingTimeInterval(900) // 15 minutes
+        }
+    }
+    
+    // MARK: - Legacy Credential Storage (for backward compatibility)
     
     func saveUserCredentials(username: String, password: String, userId: Int, requireBiometric: Bool = false) throws {
         
@@ -189,7 +301,10 @@ class KeychainManager {
         try deleteFromKeychain(key: Keys.userId)
         try deleteFromKeychain(key: Keys.biometricEnabled)
         
-        print("✅ User credentials cleared from Keychain")
+        // Also clear JWT tokens for complete cleanup
+        try? clearAuthTokens()
+        
+        print("✅ User credentials and tokens cleared from Keychain")
     }
     
     // MARK: - Private Keychain Operations
@@ -298,6 +413,21 @@ struct UserCredentials {
     let username: String
     let password: String
     let userId: Int
+}
+
+struct AuthTokens {
+    let accessToken: String
+    let refreshToken: String
+    let expiryDate: Date
+    
+    var isExpired: Bool {
+        return Date() > expiryDate
+    }
+    
+    var willExpireSoon: Bool {
+        // Token will expire in the next 5 minutes
+        return Date().addingTimeInterval(300) > expiryDate
+    }
 }
 
 enum KeychainError: Error, LocalizedError {
