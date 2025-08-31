@@ -129,6 +129,7 @@ private struct BoardColors {
     let gridColor: Color
     let backgroundColor: Color
     let selectedBackgroundColor: Color
+    let highlightedBackgroundColor: Color
     let thinLineColor: Color
     let thickLineColor: Color
     
@@ -136,13 +137,15 @@ private struct BoardColors {
         if colorScheme == .dark {
             gridColor = Color.white.opacity(0.3)
             backgroundColor = Color.black.opacity(0.05)
-            selectedBackgroundColor = Color.blue.opacity(0.2)
+            selectedBackgroundColor = Color.blue.opacity(0.4)
+            highlightedBackgroundColor = Color.blue.opacity(0.15)
             thinLineColor = Color.white.opacity(0.3)
             thickLineColor = Color.white.opacity(0.6)
         } else {
             gridColor = Color.black.opacity(0.3)
             backgroundColor = Color.white
-            selectedBackgroundColor = Color.blue.opacity(0.1)
+            selectedBackgroundColor = Color.blue.opacity(0.3)
+            highlightedBackgroundColor = Color.blue.opacity(0.08)
             thinLineColor = Color.black.opacity(0.3)
             thickLineColor = Color.black.opacity(0.6)
         }
@@ -158,11 +161,11 @@ private struct CellView: View {
     
     private var backgroundColor: Color {
         if cellData.isSelected {
-            return Color.blue.opacity(0.5)
+            return colors.selectedBackgroundColor
         } else if cellData.isHintCell {
             return Color.green.opacity(0.3)
         } else if cellData.isHighlighted {
-            return Color.blue.opacity(0.1)
+            return colors.highlightedBackgroundColor
         } else {
             return Color.clear
         }
