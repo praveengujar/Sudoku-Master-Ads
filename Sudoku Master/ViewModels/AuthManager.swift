@@ -302,6 +302,37 @@ class AuthManager: ObservableObject {
     }
     
     @MainActor
+    func requestPasswordReset(username: String) async throws {
+        isLoading = true
+        defer { isLoading = false }
+        
+        do {
+            let response = try await APIService.shared.resetPassword(username: username)
+            
+            // Clear any existing error
+            self.error = nil
+            
+            // Log the temporary password for now (in production, this would be sent via email/SMS)
+            print("🔑 Temporary password for \(username): \(response.temporaryPassword)")
+            
+            // In production, you might store this information for display to user
+            // or send it via secure channel (email/SMS)
+            
+        } catch {
+            print("🔍 Password Reset Error Details: \(error)")
+            let errorMessage = error.localizedDescription
+            
+            if errorMessage.contains("not found") || errorMessage.contains("404") {
+                throw NSError(domain: "AuthManager", code: 404, userInfo: [NSLocalizedDescriptionKey: "Username not found. Please check your username and try again."])
+            } else if errorMessage.contains("connect") || errorMessage.contains("server") || errorMessage.contains("parse") {
+                throw NSError(domain: "AuthManager", code: 500, userInfo: [NSLocalizedDescriptionKey: "Network error. Please check your internet connection and try again."])
+            } else {
+                throw NSError(domain: "AuthManager", code: 500, userInfo: [NSLocalizedDescriptionKey: "Password reset failed: \(errorMessage)"])
+            }
+        }
+    }
+    
+    @MainActor
     func logout() async {
         isLoading = true
         defer { isLoading = false }

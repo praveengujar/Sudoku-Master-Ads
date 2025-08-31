@@ -239,14 +239,14 @@ private struct CompactControlsView: View {
         VStack(spacing: 6) {  // Reduced from 12 to 6
             // Single compact line with all controls
             HStack(spacing: 16) {
-                // Difficulty buttons with themed icons
-                DifficultyButton(difficulty: .easy, icon: "🌱")
+                // Difficulty buttons with letter icons
+                DifficultyButton(difficulty: .easy, icon: "E")
                     .environmentObject(sudokuStore)
                 
-                DifficultyButton(difficulty: .medium, icon: "⚡")
+                DifficultyButton(difficulty: .medium, icon: "M")
                     .environmentObject(sudokuStore)
                 
-                DifficultyButton(difficulty: .hard, icon: "🔥")
+                DifficultyButton(difficulty: .hard, icon: "H")
                     .environmentObject(sudokuStore)
                 
                 // Separator
@@ -324,14 +324,15 @@ private struct DifficultyButton: View {
             }
         }) {
             Text(icon)
-                .font(.system(size: 20))
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundColor(isSelected ? .white : difficulty.color)
                 .frame(width: 36, height: 36)
                 .background(
                     isSelected 
-                        ? difficulty.color.opacity(0.3)
-                        : Color.gray.opacity(0.1)
+                        ? difficulty.color
+                        : difficulty.color.opacity(0.15)
                 )
-                .cornerRadius(8)
+                .clipShape(Circle())
                 .scaleEffect(isSelected ? 1.05 : 1.0)
                 .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
         }

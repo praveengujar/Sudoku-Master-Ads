@@ -9,6 +9,7 @@ struct AuthView: View {
     @State private var showAlert = false
     @State private var alertMessage = ""
     @State private var enableBiometric = false
+    @State private var showResetPassword = false
     
     var body: some View {
         NavigationView {
@@ -141,6 +142,19 @@ struct AuthView: View {
                                 }
                             )
                             
+                            // Forgot Password button (only in login mode)
+                            if isLoginMode {
+                                Button(action: {
+                                    showResetPassword = true
+                                }) {
+                                    Text("Forgot Password?")
+                                        .foregroundColor(.orange)
+                                        .font(.subheadline)
+                                        .fontWeight(.medium)
+                                }
+                                .padding(.top, 8)
+                            }
+                            
                             // Toggle between login and register
                             Button(action: {
                                 isLoginMode.toggle()
@@ -224,6 +238,10 @@ struct AuthView: View {
             .navigationBarHidden(true)
             .alert(isPresented: $showAlert) {
                 Alert(title: Text("Error"), message: Text(alertMessage), dismissButton: .default(Text("OK")))
+            }
+            .sheet(isPresented: $showResetPassword) {
+                ResetPasswordView()
+                    .environmentObject(authManager)
             }
         }
     }

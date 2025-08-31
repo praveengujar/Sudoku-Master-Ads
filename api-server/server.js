@@ -440,6 +440,47 @@ app.post('/api/users/logout', (req, res) => {
   }
 });
 
+// Password reset endpoint
+app.post('/api/users/reset-password', async (req, res) => {
+  try {
+    const { username } = req.body;
+    
+    if (!username) {
+      return res.status(400).json({ error: 'Username is required' });
+    }
+    
+    // Find user by username
+    const userIndex = users.findIndex(u => u.username === username);
+    if (userIndex === -1) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // Generate a temporary password
+    const tempPassword = 'temp' + Math.random().toString(36).substring(2, 10);
+    
+    // Hash the temporary password
+    const hashedTempPassword = await hashPassword(tempPassword);
+    
+    // Update user's password
+    users[userIndex].password = hashedTempPassword;
+    
+    // Invalidate all existing refresh tokens for this user
+    refreshTokens = refreshTokens.filter(t => t.userId !== users[userIndex].id);
+    
+    console.log(`🔑 Password reset for user: ${username}, temp password: ${tempPassword}`);
+    
+    res.json({
+      message: 'Password reset successful',
+      temporaryPassword: tempPassword,
+      instructions: 'Use this temporary password to log in, then change it immediately for security.'
+    });
+    
+  } catch (error) {
+    console.error('Password reset error:', error);
+    res.status(500).json({ error: 'Password reset failed' });
+  }
+});
+
 // Sudoku game endpoints
 app.get('/api/sudoku/generate', (req, res) => {
   const difficulty = req.query.difficulty || 'easy';

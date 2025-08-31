@@ -184,6 +184,21 @@ class APIService: ObservableObject {
         print("✅ JWT logout successful")
     }
     
+    func resetPassword(username: String) async throws -> ResetPasswordResponse {
+        let endpoint = "\(baseURL)/users/reset-password"
+        let body = ResetPasswordRequest(username: username)
+        
+        let response: ResetPasswordResponse = try await performOptimizedRequest(
+            endpoint: endpoint,
+            method: "POST",
+            body: body,
+            cachePolicy: .reloadIgnoringCacheData
+        )
+        
+        print("✅ Password reset successful for user: \(username)")
+        return response
+    }
+    
     // MARK: - JWT Token Management
     
     private func startTokenRefreshMonitoring() {
@@ -801,6 +816,16 @@ struct ValidateMoveRequest: Encodable {
 struct SolvePuzzleRequest: Encodable {
     let grid: SudokuGrid
     let timestamp: Date = Date()
+}
+
+struct ResetPasswordRequest: Encodable {
+    let username: String
+}
+
+struct ResetPasswordResponse: Decodable {
+    let message: String
+    let temporaryPassword: String
+    let instructions: String
 }
 
 // Empty response type for endpoints that don't return data
